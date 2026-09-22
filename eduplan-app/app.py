@@ -10,9 +10,6 @@ from docx.oxml.ns import qn
 from google import genai
 from google.genai import types
 
-# ----------------------------------------------------
-# 1. การตั้งค่าระบบความปลอดภัยและส่วนประสานงาน (UI)
-# ----------------------------------------------------
 SYSTEM_PASSCODE = "0863449483"
 
 st.set_page_config(
@@ -71,80 +68,47 @@ if not st.session_state.authenticated:
     login_gate()
     st.stop()
 
-# ----------------------------------------------------
-# 2. ฟังก์ชัน AI สกัดหัวเรื่อง และ สร้างโครงการสอน
-# ----------------------------------------------------
-def call_gemini_with_fallback(client, prompt, file_bytes, mime_type):
-    candidate_models = ["gemini-2.5-flash", "gemini-3.6-flash"]
-    last_err = None
-    for model_name in candidate_models:
-        for attempt in range(2):
-            try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=[types.Part.from_bytes(data=file_bytes, mime_type=mime_type), prompt],
-                    config=types.GenerateContentConfig(response_mime_type="application/json")
-                )
-                return json.loads(response.text)
-            except Exception as e:
-                last_err = e
-                if "503" in str(e) or "UNAVAILABLE" in str(e):
-                    time.sleep(3 * (attempt + 1))
-                    continue
-                elif "404" in str(e):
-                    break
-                else:
-                    time.sleep(2)
-                    continue
-    raise last_err
-
-def auto_extract_metadata(api_key: str, file_bytes: bytes, mime_type: str):
-    client = genai.Client(api_key=api_key)
-    prompt = """
-จงอ่านไฟล์เอกสารตารางวิเคราะห์งาน/วิเคราะห์หลักสูตรที่แนบมานี้ แล้วสกัดข้อมูลพื้นฐานของรายวิชาออกมาเป็น JSON:
-{
-  "course_code": "รหัสวิชา เช่น 31401-2007 (หากขึ้นต้นด้วย 3 คือ ปวส., 2 คือ ปวช.)",
-  "course_name": "ชื่อวิชาภาษาไทย",
-  "degree": "ปวส." หรือ "ปวช.",
-  "year": 1,
-  "hours_per_week": 4,
-  "semester": "1/2569"
-}
-หากไม่พบชัดเจน ให้วิเคราะห์จากบริบทของเนื้อหาและโครงสร้างรหัสวิชา
-ตอบกลับเฉพาะ JSON เท่านั้น
-"""
-    try:
-        return call_gemini_with_fallback(client, prompt, file_bytes, mime_type)
-    except Exception:
-        return {}
-
 def extract_course_plan(api_key: str, file_bytes: bytes, mime_type: str, total_weeks: int, course_name: str):
     client = genai.Client(api_key=api_key)
     prompt = f"""
 คุณคือผู้เชี่ยวชาญการจัดทำโครงการสอนอาชีวศึกษา (สอศ.)
 จงอ่านไฟล์ตารางวิเคราะห์งานวิชา '{course_name}' แล้วกระจายเนื้อหาจัดทำเป็น 'ตารางโครงการสอนต่อภาคเรียน' ให้ครบจำนวน {total_weeks} สัปดาห์ (สัปดาห์ที่ 1 ถึง {total_weeks})
 
-เกณฑ์การสร้างเนื้อหาเชิงลึกแต่ละสัปดาห์:
+เกณฑ์การสร้างเนื้อหาแต่ละสัปดาห์:
 1. week: ตัวเลขสัปดาห์ (1 ถึง {total_weeks})
 2. topic_full: ข้อความ 2 บรรทัด (บรรทัดแรก: หน่วยที่... ชื่อหน่วย / บรรทัดสอง: เรื่อง...)
 3. teaching_points: จุดประสงค์เชิงพฤติกรรม 3-4 ข้อ สังเคราะห์จากสมรรถนะย่อย ความรู้ และทักษะ
-4. activities: กิจกรรมการจัดการเรียนรู้เชิงรุก (Active Learning 4 ขั้นตอน: 1.ขั้นนำ 2.ขั้นสอน/ศึกษาค้นคว้า 3.ขั้นปฏิบัติการ 4.ขั้นสรุปและประเมินผล)
-5. media: 'สื่อการเรียนรู้ที่ตรงตามบริบทเฉพาะของหน่วยนั้นๆ' (เช่น หากเรียนเรื่องเอกสารจัดซื้อ ให้ระบุ แบบฟอร์ม PR/PO, ระบบ ERP โมดูลจัดซื้อ; หากเรียนเรื่องคลังสินค้า ให้ระบุ เครื่องอ่านบาร์โค้ด, แผนผัง Bin Location; หากเรียนเรื่องเส้นทางขนส่ง ให้ระบุ โปรแกรมจำลอง GPS, แพลตฟอร์ม e-POD เป็นต้น พร้อมระบุสื่อสไลด์และใบงานประกอบ)
-6. assessment: 'การวัดและประเมินผลที่ตรงกับทักษะจริง' (เช่น Performance Rubric การบันทึกข้อมูล, แบบประเมินผังกระบวนการ, แบบทดสอบย่อยท้ายคาบ, แบบประเมินพฤติกรรมการทำงานกลุ่ม)
+4. activities: กิจกรรมการจัดการเรียนรู้เชิงรุก (Active Learning 4 ขั้นตอน: 1.ขั้นนำ 2.ขั้นสอน/ศึกษา 3.ขั้นปฏิบัติ 4.ขั้นสรุปและประเมินผล)
+5. media: สื่อการเรียนรู้ที่ตรงกับบริบทเนื้อหาของหน่วยนั้นๆ (เช่น โมดูล ERP, Flowchart, แบบฟอร์มจัดซื้อ, อุปกรณ์บาร์โค้ด พร้อมสไลด์และใบงาน)
+6. assessment: การวัดและประเมินผลที่ตรงกับทักษะจริง (เช่น แบบประเมินทักษะ Rubric, แบบทดสอบย่อย, ตรวจเอกสารผลงาน, สังเกตพฤติกรรม)
 
-ส่งคืนเป็น Pure JSON Array:
+ส่งคืนเป็น Pure JSON Array เท่านั้น:
 [
   {{
     "week": 1,
     "topic_full": "หน่วยที่ ...\\nเรื่อง ...",
-    "teaching_points": ["จุดประสงค์ 1", "จุดประสงค์ 2", "จุดประสงค์ 3"],
+    "teaching_points": ["จุดประสงค์ 1", "จุดประสงค์ 2"],
     "activities": ["1. ขั้นนำ: ...", "2. ขั้นสอน: ...", "3. ขั้นปฏิบัติ: ...", "4. ขั้นสรุป: ..."],
-    "media": ["สื่อที่ 1", "สื่อที่ 2", "สื่อที่ 3"],
+    "media": ["สื่อ 1", "สื่อ 2"],
     "assessment": ["การวัดผล 1", "การวัดผล 2"]
   }}
 ]
 """
-    return call_gemini_with_fallback(client, prompt, file_bytes, mime_type)
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            response = client.models.generate_content(
+                model="gemini-3.6-flash",
+                contents=[types.Part.from_bytes(data=file_bytes, mime_type=mime_type), prompt],
+                config=types.GenerateContentConfig(response_mime_type="application/json")
+            )
+            return json.loads(response.text)
+        except Exception as e:
+            err_str = str(e)
+            if ("429" in err_str or "503" in err_str or "RESOURCE_EXHAUSTED" in err_str) and attempt < max_retries - 1:
+                time.sleep(10 * (attempt + 1))
+                continue
+            raise e
 
 def set_cell_font(cell, font_name="TH SarabunPSK", font_size=Pt(14), bold=False):
     for p in cell.paragraphs:
@@ -208,52 +172,28 @@ with col_file:
     template_file = st.file_uploader("แบบฟอร์มวิทยาลัย (templet.docx):", type=["docx"])
     analysis_file = st.file_uploader("ไฟล์ตารางวิเคราะห์งาน (docx/pdf):", type=["docx", "pdf"])
 
-    auto_meta = {}
-    if analysis_file and api_key:
-        if "loaded_file" not in st.session_state or st.session_state.loaded_file != analysis_file.name:
-            with st.spinner("🤖 AI กำลังสกัดข้อมูลรายวิชาและระดับการศึกษาอัตโนมัติ..."):
-                mime = "application/pdf" if analysis_file.name.endswith(".pdf") else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                auto_meta = auto_extract_metadata(api_key, analysis_file.getvalue(), mime)
-                st.session_state.auto_meta = auto_meta
-                st.session_state.loaded_file = analysis_file.name
-        else:
-            auto_meta = st.session_state.get("auto_meta", {})
-
 with col_info:
-    st.markdown('<div class="box-header">🎯 2. ข้อมูลวิชาและระดับชั้น (AI สกัดให้อัตโนมัติ)</div>', unsafe_allow_html=True)
-    
-    # ระดับการศึกษา
-    deg_default = auto_meta.get("degree", "ปวส.")
-    deg_index = 0 if "ปวส" in deg_default else 1
-    degree_select = st.selectbox("ระดับคุณวุฒิการศึกษา:", ["ประกาศนียบัตรวิชาชีพชั้นสูง (ปวส.)", "ประกาศนียบัตรวิชาชีพ (ปวช.)"], index=deg_index)
-    
+    st.markdown('<div class="box-header">🎯 2. ข้อมูลวิชาและระดับชั้น</div>', unsafe_allow_html=True)
+    degree_select = st.selectbox("ระดับคุณวุฒิการศึกษา:", ["ประกาศนียบัตรวิชาชีพชั้นสูง (ปวส.)", "ประกาศนียบัตรวิชาชีพ (ปวช.)"])
     is_pvs = "ปวส." in degree_select
     
     c_y, c_w, c_h = st.columns(3)
     with c_y:
-        if is_pvs:
-            year_opts = [1, 2]
-        else:
-            year_opts = [1, 2, 3]
+        year_opts = [1, 2] if is_pvs else [1, 2, 3]
         year_input = st.selectbox("ระดับชั้นปี:", year_opts, index=0)
     with c_w:
-        # ปวส = 15 สัปดาห์, ปวช = 18 สัปดาห์
         default_weeks = 15 if is_pvs else 18
         weeks_input = st.number_input("สัปดาห์ต่อภาคเรียน:", min_value=1, max_value=22, value=default_weeks)
     with c_h:
-        hours_default = int(auto_meta.get("hours_per_week", 4))
-        hours_input = st.number_input("ชั่วโมงต่อสัปดาห์:", min_value=1, max_value=10, value=hours_default)
+        hours_input = st.number_input("ชั่วโมงต่อสัปดาห์:", min_value=1, max_value=10, value=4)
         
     c_code, c_sem = st.columns(2)
     with c_code:
-        code_default = auto_meta.get("course_code", "31401-2007")
-        course_code_input = st.text_input("รหัสวิชา:", value=code_default)
+        course_code_input = st.text_input("รหัสวิชา:", value="31401-2007")
     with c_sem:
-        sem_default = auto_meta.get("semester", "1/2569")
-        sem_input = st.text_input("ภาคเรียนที่:", value=sem_default)
+        sem_input = st.text_input("ภาคเรียนที่:", value="1/2569")
         
-    name_default = auto_meta.get("course_name", "การจัดการโลจิสติกส์และซัพพลายเชน")
-    course_name_input = st.text_input("ชื่อวิชา:", value=name_default)
+    course_name_input = st.text_input("ชื่อวิชา:", value="การจัดการโลจิสติกส์และซัพพลายเชน")
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -318,7 +258,6 @@ if st.button("🚀 ประมวลผลและสร้างโครง�
                 if not target_table:
                     target_table = doc.tables[0]
                 
-                # หยอดข้อมูลตาราง 6 คอลัมน์ ไม่สลับช่อง
                 for item in plans:
                     row_cells = target_table.add_row().cells
                     
@@ -359,7 +298,7 @@ if st.button("🚀 ประมวลผลและสร้างโครง�
                 st.download_button(
                     label=f"📥 ดาวน์โหลดโครงการสอน_{course_code_input}.docx",
                     data=out_stream,
-                    file_name=f"โครงการสอน_{course_code_input}_{deg_default}_{year_input}.docx",
+                    file_name=f"โครงการสอน_{course_code_input}_{sem_input.replace('/', '_')}.docx",
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     use_container_width=True
                 )
