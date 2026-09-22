@@ -1,5 +1,6 @@
 import io
 import json
+import time
 import streamlit as st
 from docx import Document
 from docx.shared import Pt
@@ -10,7 +11,7 @@ from google import genai
 from google.genai import types
 
 # ----------------------------------------------------
-# 1. การตั้งค่าระบบและธีมพรีเมียม
+# 1. การตั้งค่าระบบความปลอดภัยและส่วนประสานงาน (UI)
 # ----------------------------------------------------
 SYSTEM_PASSCODE = "0863449483"
 
@@ -71,7 +72,7 @@ if not st.session_state.authenticated:
     st.stop()
 
 # ----------------------------------------------------
-# 2. ฟังก์ชัน AI ประมวลผลตารางวิเคราะห์งาน (Gemini 3.6 Flash)
+# 2. ฟังก์ชัน AI ประมวลผลตารางวิเคราะห์งาน (Gemini 3.6 Flash + Retry)
 # ----------------------------------------------------
 def extract_from_analysis_doc(api_key: str, file_bytes: bytes, mime_type: str, total_weeks: int, course_name: str):
     client = genai.Client(api_key=api_key)
@@ -94,15 +95,24 @@ def extract_from_analysis_doc(api_key: str, file_bytes: bytes, mime_type: str, t
 ตอบกลับเป็น Pure JSON Array โดยตรง ห้ามมีเครื่องหมาย markdown code block ครอบ
 """
 
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=[
-            types.Part.from_bytes(data=file_bytes, mime_type=mime_type),
-            prompt
-        ],
-        config=types.GenerateContentConfig(response_mime_type="application/json")
-    )
-    return json.loads(response.text)
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            response = client.models.generate_content(
+                model="gemini-3.6-flash",
+                contents=[
+                    types.Part.from_bytes(data=file_bytes, mime_type=mime_type),
+                    prompt
+                ],
+                config=types.GenerateContentConfig(response_mime_type="application/json")
+            )
+            return json.loads(response.text)
+        except Exception as e:
+            err_str = str(e)
+            if ("503" in err_str or "UNAVAILABLE" in err_str) and attempt < max_retries - 1:
+                time.sleep(4 * (attempt + 1))
+                continue
+            raise e
 
 def set_cell_font(cell, font_name="TH SarabunPSK", font_size=Pt(14), bold=False):
     for p in cell.paragraphs:
@@ -135,7 +145,7 @@ def replace_placeholders_in_doc(doc, replacements):
                 p.text = p.text.replace(key, str(val))
 
 # ----------------------------------------------------
-# 3. ส่วนควบคุม UI
+# 3. เมนูควบคุมและฟอร์มรับข้อมูลหน้าบ้าน
 # ----------------------------------------------------
 with st.sidebar:
     st.markdown("### ⚙️ การตั้งค่าระบบ")
@@ -164,7 +174,7 @@ col1, col2 = st.columns(2, gap="large")
 
 with col1:
     st.markdown('<div class="box-header">📁 1. เอกสารนำเข้า</div>', unsafe_allow_html=True)
-    template_file = st.file_uploader("แบบฟอร์มวิทยาลัย (template.docx):", type=["docx"])
+    template_file = st.file_uploader("แบบฟอร์มวิทยาลัย (templet.docx):", type=["docx"])
     analysis_file = st.file_uploader("ไฟล์ตารางวิเคราะห์งาน (Word / PDF):", type=["docx", "pdf"])
 
 with col2:
@@ -190,9 +200,9 @@ st.markdown("<br>", unsafe_allow_html=True)
 # ----------------------------------------------------
 if st.button("🚀 ประมวลผลและสร้างโครงการสอน (Generate)", type="primary", use_container_width=True):
     if not api_key:
-        st.warning("กรุณาระบุ Gemini API Key ในแถบซ้ายมือก่อนเริ่ม")
+        st.warning("⚠️ กรุณาระบุ Gemini API Key ในแถบซ้ายมือก่อนเริ่ม")
     elif not template_file or not analysis_file:
-        st.warning("กรุณาแนบทั้ง 'แบบฟอร์มวิทยาลัย (template.docx)' และ 'ไฟล์ตารางวิเคราะห์งาน'")
+        st.warning("⚠️ กรุณาแนบทั้ง 'แบบฟอร์มวิทยาลัย (templet.docx)' และ 'ไฟล์ตารางวิเคราะห์งาน'")
     else:
         with st.status("⚡ กำลังประมวลผลโครงการสอน...", expanded=True) as status:
             try:
@@ -200,7 +210,7 @@ if st.button("🚀 ประมวลผลและสร้างโครง�
                 mime = "application/pdf" if analysis_file.name.endswith(".pdf") else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                 file_bytes = analysis_file.read()
                 
-                st.write("🤖 ส่งต่อ Gemini 3.6 Flash สังเคราะห์แผนการสอนรายสัปดาห์...")
+                st.write("🤖 กำลังวิเคราะห์และสังเคราะห์แผนการสอนรายสัปดาห์ด้วย Gemini 3.6 Flash...")
                 plans = extract_from_analysis_doc(
                     api_key=api_key,
                     file_bytes=file_bytes,
