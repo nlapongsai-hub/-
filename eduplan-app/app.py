@@ -9,7 +9,6 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from google import genai
 from google.genai import types
-import pypdf
 
 # ----------------------------------------------------
 # 1. ตั้งค่าความปลอดภัยและ UI
@@ -120,7 +119,6 @@ def process_doc_placeholders(doc, replacements):
     for table in doc.tables:
         for row in table.rows:
             for cell in row.cells:
-                # ตรวจสอบและแทนที่เลขหน้าอัตโนมัติ
                 if "{{ page_no }}" in cell.text:
                     for p in cell.paragraphs:
                         if "{{ page_no }}" in p.text:
@@ -130,7 +128,6 @@ def process_doc_placeholders(doc, replacements):
                             run.font.name = "TH SarabunPSK"
                             run.font.size = Pt(14)
                 
-                # แทนที่ตัวแปรข้อความอื่นๆ
                 for k, v in replacements.items():
                     if k in cell.text:
                         for p in cell.paragraphs:
@@ -149,50 +146,40 @@ def process_doc_placeholders(doc, replacements):
                 p.text = p.text.replace(k, str(v))
 
 # ----------------------------------------------------
-# 3. ฟังก์ชัน AI สกัดเนื้อหา (Text Payload ป้องกัน 503)
+# 3. ฟังก์ชัน AI สกัดเนื้อหา (ใช้ python-docx อ่านข้อความ ไม่พึ่ง pypdf)
 # ----------------------------------------------------
-def extract_text_from_file(file_bytes: bytes, file_name: str) -> str:
-    text_content = []
-    try:
-        if file_name.endswith(".docx"):
+def get_file_content_for_ai(file_bytes: bytes, file_name: str, mime_type: str):
+    """แปลงเนื้อหาเอกสาร docx เป็น Text ส่วน PDF ส่งผ่าน types.Part โดยตรง"""
+    if file_name.endswith(".docx"):
+        try:
             doc = Document(io.BytesIO(file_bytes))
+            text_lines = []
             for p in doc.paragraphs:
                 if p.text.strip():
-                    text_content.append(p.text.strip())
+                    text_lines.append(p.text.strip())
             for tbl in doc.tables:
                 for row in tbl.rows:
                     row_data = [c.text.strip().replace("\n", " ") for c in row.cells if c.text.strip()]
                     if row_data:
-                        text_content.append(" | ".join(row_data))
-        elif file_name.endswith(".pdf"):
-            reader = pypdf.PdfReader(io.BytesIO(file_bytes))
-            for page in reader.pages:
-                t = page.extract_text()
-                if t:
-                    text_content.append(t)
-    except Exception:
-        pass
-    return "\n".join(text_content)
+                        text_lines.append(" | ".join(row_data))
+            return "\n".join(text_lines)
+        except Exception:
+            return ""
+    return types.Part.from_bytes(data=file_bytes, mime_type=mime_type)
 
-def extract_course_plan(api_key: str, context_text: str, total_weeks: int, course_name: str):
+def extract_course_plan(api_key: str, content_data, total_weeks: int, course_name: str):
     client = genai.Client(api_key=api_key)
     prompt = f"""
 คุณคือผู้เชี่ยวชาญการจัดทำหลักสูตรและโครงการสอนระดับอาชีวศึกษา (มาตรฐาน สอศ.)
-จงอ่านข้อมูลจาก 'ตารางวิเคราะห์งาน / ตารางวิเคราะห์หน่วย' ของวิชา '{course_name}' ต่อไปนี้:
-
---- ข้อมูลจากตารางวิเคราะห์งาน ---
-{context_text[:15000]}
----------------------------------
-
-จงสังเคราะห์และจัดทำเป็น 'ตารางโครงการสอนรายสัปดาห์' ให้ครบถ้วนจำนวน {total_weeks} สัปดาห์ (สัปดาห์ที่ 1 ถึง {total_weeks})
+จงอ่านข้อมูลจากตารางวิเคราะห์งาน/วิเคราะห์หลักสูตรของวิชา '{course_name}' ต่อไปนี้ แล้วสังเคราะห์จัดทำเป็น 'ตารางโครงการสอนรายสัปดาห์' ให้ครบถ้วนจำนวน {total_weeks} สัปดาห์ (สัปดาห์ที่ 1 ถึง {total_weeks})
 
 *** ข้อกำหนดโครงสร้าง JSON Output ในแต่ละสัปดาห์: ***
 1. week: ตัวเลขสัปดาห์ (เช่น 1)
-2. topic_title: ชื่อหน่วยและเรื่อง (บรรทัดแรก: หน่วยที่... ชื่อหน่วย / บรรทัดสอง: เรื่อง...)
-3. teaching_points: ข้อความจุดประสงค์เชิงพฤติกรรม 2-3 ข้อ (สังเคราะห์จากสมรรถนะย่อย ความรู้ และทักษะ)
-4. activities: ข้อความขั้นตอนการจัดการเรียนรู้เชิงรุก (Active Learning 4 ขั้นตอน: 1.ขั้นนำ 2.ขั้นสอน/ศึกษา 3.ขั้นปฏิบัติ 4.ขั้นสรุปและประเมินผล)
-5. media: ข้อความสื่อการเรียนรู้ที่ **สอดคล้องกับสิ่งที่นักเรียนทำในขั้นกิจกรรมปฏิบัติจริง** (เช่น แบบฟอร์มใบสั่งซื้อ PO, ซอฟต์แวร์ ERP จำลอง, แผนผัง Layout คลังสินค้า พร้อมสไลด์และใบงาน)
-6. assessment: ข้อความการวัดและประเมินผลที่ **สอดคล้องกับกิจกรรมจริง** (เช่น แบบประเมินทักษะการปฏิบัติงาน Rubric, แบบทดสอบย่อย, แบบประเมินผลงานกลุ่ม)
+2. topic_title: ข้อความ 2 บรรทัด (บรรทัดแรก: หน่วยที่... ชื่อหน่วย / บรรทัดสอง: เรื่อง...)
+3. teaching_points: จุดประสงค์เชิงพฤติกรรม 2-3 ข้อ (สังเคราะห์จากสมรรถนะย่อย ความรู้ และทักษะ)
+4. activities: ขั้นตอนการจัดการเรียนรู้เชิงรุก (Active Learning 4 ขั้นตอน: 1.ขั้นนำ 2.ขั้นสอน/ศึกษา 3.ขั้นปฏิบัติ 4.ขั้นสรุปและประเมินผล)
+5. media: สื่อการเรียนรู้ที่ **สอดคล้องกับสิ่งที่นักเรียนทำในขั้นกิจกรรมปฏิบัติจริง** (เช่น แบบฟอร์มใบสั่งซื้อ PO, ซอฟต์แวร์ ERP จำลอง, แผนผัง Layout คลังสินค้า พร้อมสไลด์และใบงาน)
+6. assessment: การวัดและประเมินผลที่ **สอดคล้องกับกิจกรรมจริง** (เช่น แบบประเมินทักษะการปฏิบัติงาน Rubric, แบบทดสอบย่อย, แบบประเมินผลงานกลุ่ม)
 
 ตอบกลับเป็น Pure JSON Array เท่านั้น ห้ามใส่ markdown block:
 [
@@ -206,15 +193,20 @@ def extract_course_plan(api_key: str, context_text: str, total_weeks: int, cours
   }}
 ]
 """
-    candidate_models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-3.6-flash"]
+    candidate_models = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3.6-flash"]
     last_error = None
+
+    if isinstance(content_data, str):
+        full_contents = f"เนื้อหาเอกสาร:\n{content_data[:15000]}\n\n{prompt}"
+    else:
+        full_contents = [content_data, prompt]
 
     for model_name in candidate_models:
         for attempt in range(2):
             try:
                 response = client.models.generate_content(
                     model=model_name,
-                    contents=prompt,
+                    contents=full_contents,
                     config=types.GenerateContentConfig(response_mime_type="application/json")
                 )
                 return json.loads(response.text)
@@ -297,17 +289,15 @@ if st.button("🚀 ประมวลผลและสร้างโครง�
     else:
         with st.status("⚡ กำลังสร้างโครงการสอนมาตรฐาน สอศ. ...", expanded=True) as status:
             try:
-                st.write("📖 กำลังสกัดเนื้อหาจากตารางวิเคราะห์งาน...")
+                st.write("📖 กำลังอ่านและเตรียมข้อมูลจากตารางวิเคราะห์งาน...")
                 raw_bytes = analysis_file.getvalue()
-                context_text = extract_text_from_file(raw_bytes, analysis_file.name)
-                
-                if not context_text.strip():
-                    context_text = f"รายวิชา {course_name_input} รหัส {course_code_input}"
+                mime = "application/pdf" if analysis_file.name.endswith(".pdf") else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                content_data = get_file_content_for_ai(raw_bytes, analysis_file.name, mime)
 
                 st.write("🤖 กำลังวิเคราะห์เนื้อหา ออกแบบสื่อ และการวัดผลเฉพาะบริบท...")
                 plans = extract_course_plan(
                     api_key=api_key,
-                    context_text=context_text,
+                    content_data=content_data,
                     total_weeks=weeks_input,
                     course_name=course_name_input
                 )
