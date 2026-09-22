@@ -9,9 +9,10 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from google import genai
 from google.genai import types
+import pypdf
 
 # ----------------------------------------------------
-# 1. การตั้งค่าระบบความปลอดภัยและส่วนประสานงาน (UI)
+# 1. ตั้งค่าความปลอดภัยและ UI
 # ----------------------------------------------------
 SYSTEM_PASSCODE = "0863449483"
 
@@ -72,63 +73,25 @@ if not st.session_state.authenticated:
     st.stop()
 
 # ----------------------------------------------------
-# 2. ฟังก์ชัน AI สกัดเนื้อหา (เน้นคิด สื่อ + วัดผล สัมพันธ์กับ กิจกรรม)
+# 2. ฟังก์ชันจัดการ Word XML และระบบเลขหน้า
 # ----------------------------------------------------
-def extract_course_plan(api_key: str, file_bytes: bytes, mime_type: str, total_weeks: int, course_name: str):
-    client = genai.Client(api_key=api_key)
-    prompt = f"""
-คุณคือผู้เชี่ยวชาญการจัดทำหลักสูตรและโครงการสอนระดับอาชีวศึกษา (มาตรฐาน สอศ.)
-จงอ่านเนื้อหาจากไฟล์ตารางวิเคราะห์งานวิชา '{course_name}' ที่แนบมานี้ แล้วสังเคราะห์จัดทำเป็น 'ตารางโครงการสอนรายสัปดาห์' ให้ครบถ้วนจำนวน {total_weeks} สัปดาห์ (สัปดาห์ที่ 1 ถึง {total_weeks})
-
-*** หลักการออกแบบเนื้อหาเชิงลึก (เน้นความเชื่อมโยง 100%): ***
-1. week: ตัวเลขสัปดาห์ (1 ถึง {total_weeks})
-2. topic_full: ข้อความ 2 บรรทัด (บรรทัดแรก: หน่วยที่... ชื่อหน่วย / บรรทัดสอง: เรื่อง...)
-3. teaching_points: จุดประสงค์เชิงพฤติกรรม 3-4 ข้อ สังเคราะห์จากสมรรถนะย่อย ความรู้ และทักษะ
-4. activities: กิจกรรมการจัดการเรียนรู้เชิงรุก (Active Learning 4 ขั้นตอน: 1.ขั้นนำเข้าสู่บทเรียน 2.ขั้นให้ความรู้/ศึกษาค้นคว้า 3.ขั้นฝึกปฏิบัติการ 4.ขั้นสรุปและประเมินผล)
-5. media (สื่อการเรียนรู้): **ต้องอิงและเชื่อมโยงโดยตรงกับสิ่งที่ระบุในคอลัมน์ 'กิจกรรม (activities)'** 
-   - ในกิจกรรมระบุให้ทำอะไร สื่อในช่องนี้ต้องมีสิ่งนั้นอย่างเฉพาะเจาะจง ห้ามใส่กว้างๆ 
-   - เช่น ถ้ากิจกรรมให้นักเรียนฝึกเปิดใบสั่งซื้อ สื่อต้องเป็น: แบบฟอร์มใบสั่งซื้อ (Purchase Order: PO), ระบบโปรแกรม ERP จำลอง
-   - เช่น ถ้ากิจกรรมให้คำนวณพื้นที่คลังสินค้า สื่อต้องเป็น: แผนผัง Layout คลังสินค้า, สเปกพาเลทและชั้นวาง, โปรแกรมคำนวณ Excel
-   - พร้อมระบุสื่อพื้นฐานที่ใช้ เช่น สไลด์มัลติมีเดียหน่วยที่..., ใบความรู้และใบงานที่...
-6. assessment (การวัดและประเมินผล): **ต้องอิงและเชื่อมโยงโดยตรงกับคอลัมน์ 'กิจกรรม (activities)' และ 'Teaching Point'**
-   - วัดจากชิ้นงานหรือการกระทำที่เด็กทำจริงในขั้นกิจกรรมปฏิบัติ
-   - เช่น แบบประเมินทักษะการปฏิบัติงาน (Rubric) การคีย์ข้อมูล PO, แบบทดสอบย่อยท้ายคาบ, แบบประเมินการนำเสนอผลงานกลุ่ม, แบบสังเกตพฤติกรรมการมีส่วนร่วม
-
-ส่งคืนเป็น Pure JSON Array เท่านั้น ห้ามมี markdown code block ครอบ:
-[
-  {{
-    "week": 1,
-    "topic_full": "หน่วยที่ ...\\nเรื่อง ...",
-    "teaching_points": ["จุดประสงค์ 1", "จุดประสงค์ 2"],
-    "activities": ["1. ขั้นนำ: ...", "2. ขั้นสอน: ...", "3. ขั้นปฏิบัติ: ...", "4. ขั้นสรุป: ..."],
-    "media": ["สื่อที่ใช้จริงในกิจกรรม 1", "สื่อที่ใช้จริงในกิจกรรม 2"],
-    "assessment": ["เครื่องมือวัดผลที่ตรงกับกิจกรรม 1", "เครื่องมือวัดผล 2"]
-  }}
-]
-"""
-    # ใช้ gemini-2.5-flash และ gemini-2.5-flash-lite เพื่อความเสถียรสูงสุด ไม่ติด Error 503
-    candidate_models = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3.6-flash"]
-    last_error = None
-
-    for model_name in candidate_models:
-        for attempt in range(2):
-            try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=[types.Part.from_bytes(data=file_bytes, mime_type=mime_type), prompt],
-                    config=types.GenerateContentConfig(response_mime_type="application/json")
-                )
-                return json.loads(response.text)
-            except Exception as e:
-                last_error = e
-                err_str = str(e)
-                if ("503" in err_str or "UNAVAILABLE" in err_str) and attempt < 1:
-                    time.sleep(3)
-                    continue
-                else:
-                    break
-
-    raise last_error
+def add_page_number_field(run):
+    """แทรกโค้ดฟิลด์ Word PAGE เพื่อรันเลขหน้าตามจริงของเอกสาร"""
+    fldChar1 = OxmlElement('w:fldChar')
+    fldChar1.set(qn('w:fldCharType'), 'begin')
+    instrText = OxmlElement('w:instrText')
+    instrText.set(qn('xml:space'), 'preserve')
+    instrText.text = "PAGE"
+    fldChar2 = OxmlElement('w:fldChar')
+    fldChar2.set(qn('w:fldCharType'), 'separate')
+    fldChar3 = OxmlElement('w:fldChar')
+    fldChar3.set(qn('w:fldCharType'), 'end')
+    
+    r = run._r
+    r.append(fldChar1)
+    r.append(instrText)
+    r.append(fldChar2)
+    r.append(fldChar3)
 
 def set_cell_font(cell, font_name="TH SarabunPSK", font_size=Pt(14), bold=False):
     for p in cell.paragraphs:
@@ -152,22 +115,122 @@ def set_repeat_table_header(row):
     tblHeader = OxmlElement('w:tblHeader')
     trPr.append(tblHeader)
 
-def replace_placeholders(doc, replacements):
+def process_doc_placeholders(doc, replacements):
+    """แทนที่ตัวแปร พร้อมสร้างฟิลด์เลขหน้าอัตโนมัติเมื่อพบ {{ page_no }}"""
     for table in doc.tables:
         for row in table.rows:
             for cell in row.cells:
+                # ตรวจสอบและแทนที่เลขหน้าอัตโนมัติ
+                if "{{ page_no }}" in cell.text:
+                    for p in cell.paragraphs:
+                        if "{{ page_no }}" in p.text:
+                            p.text = p.text.replace("{{ page_no }}", "")
+                            run = p.add_run()
+                            add_page_number_field(run)
+                            run.font.name = "TH SarabunPSK"
+                            run.font.size = Pt(14)
+                
+                # แทนที่ตัวแปรข้อความอื่นๆ
                 for k, v in replacements.items():
                     if k in cell.text:
                         for p in cell.paragraphs:
                             if k in p.text:
                                 p.text = p.text.replace(k, str(v))
+
     for p in doc.paragraphs:
+        if "{{ page_no }}" in p.text:
+            p.text = p.text.replace("{{ page_no }}", "")
+            run = p.add_run()
+            add_page_number_field(run)
+            run.font.name = "TH SarabunPSK"
+            run.font.size = Pt(14)
         for k, v in replacements.items():
             if k in p.text:
                 p.text = p.text.replace(k, str(v))
 
 # ----------------------------------------------------
-# 3. ส่วนรับข้อมูลหน้าเว็บ
+# 3. ฟังก์ชัน AI สกัดเนื้อหา (Text Payload ป้องกัน 503)
+# ----------------------------------------------------
+def extract_text_from_file(file_bytes: bytes, file_name: str) -> str:
+    text_content = []
+    try:
+        if file_name.endswith(".docx"):
+            doc = Document(io.BytesIO(file_bytes))
+            for p in doc.paragraphs:
+                if p.text.strip():
+                    text_content.append(p.text.strip())
+            for tbl in doc.tables:
+                for row in tbl.rows:
+                    row_data = [c.text.strip().replace("\n", " ") for c in row.cells if c.text.strip()]
+                    if row_data:
+                        text_content.append(" | ".join(row_data))
+        elif file_name.endswith(".pdf"):
+            reader = pypdf.PdfReader(io.BytesIO(file_bytes))
+            for page in reader.pages:
+                t = page.extract_text()
+                if t:
+                    text_content.append(t)
+    except Exception:
+        pass
+    return "\n".join(text_content)
+
+def extract_course_plan(api_key: str, context_text: str, total_weeks: int, course_name: str):
+    client = genai.Client(api_key=api_key)
+    prompt = f"""
+คุณคือผู้เชี่ยวชาญการจัดทำหลักสูตรและโครงการสอนระดับอาชีวศึกษา (มาตรฐาน สอศ.)
+จงอ่านข้อมูลจาก 'ตารางวิเคราะห์งาน / ตารางวิเคราะห์หน่วย' ของวิชา '{course_name}' ต่อไปนี้:
+
+--- ข้อมูลจากตารางวิเคราะห์งาน ---
+{context_text[:15000]}
+---------------------------------
+
+จงสังเคราะห์และจัดทำเป็น 'ตารางโครงการสอนรายสัปดาห์' ให้ครบถ้วนจำนวน {total_weeks} สัปดาห์ (สัปดาห์ที่ 1 ถึง {total_weeks})
+
+*** ข้อกำหนดโครงสร้าง JSON Output ในแต่ละสัปดาห์: ***
+1. week: ตัวเลขสัปดาห์ (เช่น 1)
+2. topic_title: ชื่อหน่วยและเรื่อง (บรรทัดแรก: หน่วยที่... ชื่อหน่วย / บรรทัดสอง: เรื่อง...)
+3. teaching_points: ข้อความจุดประสงค์เชิงพฤติกรรม 2-3 ข้อ (สังเคราะห์จากสมรรถนะย่อย ความรู้ และทักษะ)
+4. activities: ข้อความขั้นตอนการจัดการเรียนรู้เชิงรุก (Active Learning 4 ขั้นตอน: 1.ขั้นนำ 2.ขั้นสอน/ศึกษา 3.ขั้นปฏิบัติ 4.ขั้นสรุปและประเมินผล)
+5. media: ข้อความสื่อการเรียนรู้ที่ **สอดคล้องกับสิ่งที่นักเรียนทำในขั้นกิจกรรมปฏิบัติจริง** (เช่น แบบฟอร์มใบสั่งซื้อ PO, ซอฟต์แวร์ ERP จำลอง, แผนผัง Layout คลังสินค้า พร้อมสไลด์และใบงาน)
+6. assessment: ข้อความการวัดและประเมินผลที่ **สอดคล้องกับกิจกรรมจริง** (เช่น แบบประเมินทักษะการปฏิบัติงาน Rubric, แบบทดสอบย่อย, แบบประเมินผลงานกลุ่ม)
+
+ตอบกลับเป็น Pure JSON Array เท่านั้น ห้ามใส่ markdown block:
+[
+  {{
+    "week": 1,
+    "topic_title": "หน่วยที่ 1 ความรู้เบื้องต้นเกี่ยวกับซัพพลายเชน\\nเรื่อง ความหมายและขอบเขต",
+    "teaching_points": "- อธิบายความหมายและขอบเขตของซัพพลายเชนได้\\n- เปรียบเทียบความแตกต่างระหว่างโลจิสติกส์และซัพพลายเชนได้",
+    "activities": "1. ขั้นนำเข้าสู่บทเรียน: ครูเปิดคลิปวิดีโอและตั้งคำถาม...\\n2. ขั้นให้ความรู้: บรรยายประกอบสไลด์...\\n3. ขั้นฝึกปฏิบัติ: แบ่งกลุ่มวิเคราะห์โครงสร้างธุรกิจ...\\n4. ขั้นสรุปและประเมินผล: สรุปประเด็นสำคัญร่วมกัน",
+    "media": "- สื่อสไลด์มัลติมีเดีย หน่วยที่ 1\\n- คลิปวิดีโอวงจรชีวิตผลิตภัณฑ์\\n- ตารางวิเคราะห์เปรียบเทียบ\\n- ใบงานที่ 1.1 เรื่อง โครงสร้างซัพพลายเชน",
+    "assessment": "- แบบประเมินผลการทำใบงานที่ 1.1\\n- แบบทดสอบย่อยท้ายคาบ\\n- แบบประเมินการนำเสนอผลงานกลุ่ม\\n- แบบสังเกตพฤติกรรมการทำงาน"
+  }}
+]
+"""
+    candidate_models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-3.6-flash"]
+    last_error = None
+
+    for model_name in candidate_models:
+        for attempt in range(2):
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(response_mime_type="application/json")
+                )
+                return json.loads(response.text)
+            except Exception as e:
+                last_error = e
+                err_str = str(e)
+                if ("503" in err_str or "UNAVAILABLE" in err_str) and attempt < 1:
+                    time.sleep(3)
+                    continue
+                else:
+                    break
+
+    raise last_error
+
+# ----------------------------------------------------
+# 4. ส่วนรับข้อมูลหน้าเว็บ
 # ----------------------------------------------------
 with st.sidebar:
     st.markdown("### ⚙️ การตั้งค่าระบบ")
@@ -185,8 +248,8 @@ st.markdown("""
 <div class="hero-banner">
     <div class="hero-title">📋 ระบบจัดทำโครงการสอนอัจฉริยะ (สอศ.)</div>
     <div class="hero-desc">
-        วิเคราะห์และสกัดข้อมูลจากตารางวิเคราะห์งานสู่โครงการสอนอัตโนมัติ<br>
-        ระบบออกแบบกิจกรรมเชิงรุก สื่อ และการวัดผลที่เชื่อมโยงตรงตามบริบท พร้อมซ้ำหัวตารางทุกหน้า
+        สกัดตารางวิเคราะห์งานสู่โครงการสอนอัตโนมัติ รองรับ ปวส. (15 สัปดาห์ | ปี 1-2) และ ปวช. (18 สัปดาห์ | ปี 1-3)<br>
+        แยกช่อง สื่อ-วัดผล ตรงคอลัมน์ 100% พร้อมรันเลขหน้า/แผ่นที่ และซ้ำหัวตารางทุกหน้า
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -205,11 +268,9 @@ with col_info:
     
     c_y, c_w, c_h = st.columns(3)
     with c_y:
-        # ปวส. มีปี 1-2 ส่วน ปวช. มีปี 1-3
         year_opts = [1, 2] if is_pvs else [1, 2, 3]
         year_input = st.selectbox("ระดับชั้นปี:", year_opts, index=0)
     with c_w:
-        # ปวส. กำหนดเริ่มต้น 15 สัปดาห์ ส่วน ปวช. เริ่มต้น 18 สัปดาห์
         default_weeks = 15 if is_pvs else 18
         weeks_input = st.number_input("สัปดาห์ต่อภาคเรียน:", min_value=1, max_value=22, value=default_weeks)
     with c_h:
@@ -221,12 +282,12 @@ with col_info:
     with c_sem:
         sem_input = st.text_input("ภาคเรียนที่:", value="1/2569")
         
-    course_name_input = st.text_input("ชื่อวิชา:", value="การจัดการโลจิสติกส์และซัพพลายเชน")
+    course_name_input = st.text_input("ชื่อวิชา:", value="ซัพพลายเชนเบื้องต้น")
 
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ----------------------------------------------------
-# 4. ประมวลผลและสร้างไฟล์ Word
+# 5. ประมวลผลและสร้างไฟล์ Word
 # ----------------------------------------------------
 if st.button("🚀 ประมวลผลและสร้างโครงการสอน (Generate Word)", type="primary", use_container_width=True):
     if not api_key:
@@ -236,20 +297,22 @@ if st.button("🚀 ประมวลผลและสร้างโครง�
     else:
         with st.status("⚡ กำลังสร้างโครงการสอนมาตรฐาน สอศ. ...", expanded=True) as status:
             try:
-                st.write("📖 กำลังอ่านโครงสร้างข้อมูลจากตารางวิเคราะห์งาน...")
-                mime = "application/pdf" if analysis_file.name.endswith(".pdf") else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                file_bytes = analysis_file.getvalue()
+                st.write("📖 กำลังสกัดเนื้อหาจากตารางวิเคราะห์งาน...")
+                raw_bytes = analysis_file.getvalue()
+                context_text = extract_text_from_file(raw_bytes, analysis_file.name)
                 
-                st.write("🤖 กำลังวิเคราะห์เนื้อหา เชื่อมโยงกิจกรรม สื่อ และการวัดผลเฉพาะบริบท...")
+                if not context_text.strip():
+                    context_text = f"รายวิชา {course_name_input} รหัส {course_code_input}"
+
+                st.write("🤖 กำลังวิเคราะห์เนื้อหา ออกแบบสื่อ และการวัดผลเฉพาะบริบท...")
                 plans = extract_course_plan(
                     api_key=api_key,
-                    file_bytes=file_bytes,
-                    mime_type=mime,
+                    context_text=context_text,
                     total_weeks=weeks_input,
                     course_name=course_name_input
                 )
                 
-                st.write("📝 กำลังบรรจุข้อมูล กำหนดหัวตารางซ้ำทุกหน้า และผสานแบบฟอร์ม Word...")
+                st.write("📝 กำลังบรรจุข้อมูลลงคอลัมน์ และตั้งค่าระบบเลขหน้า...")
                 doc = Document(template_file)
                 
                 CHECK, UNCHECK = "☑", "☐"
@@ -268,12 +331,14 @@ if st.button("🚀 ประมวลผลและสร้างโครง�
                     "{{ total_weeks }}": str(weeks_input),
                     "{{ semester }}": sem_input,
                     "{{ year_display }}": y_disp,
+                    "{{ sheet_no }}": "1",
                     "{{ cb_y1 }}": CHECK if year_input == 1 else UNCHECK,
                     "{{ cb_y2 }}": CHECK if year_input == 2 else UNCHECK,
                     "{{ cb_y3 }}": CHECK if year_input == 3 else UNCHECK
                 }
-                replace_placeholders(doc, replacements)
+                process_doc_placeholders(doc, replacements)
                 
+                # ค้นหาตารางหลัก
                 target_table = None
                 header_row_index = -1
                 for tbl in doc.tables:
@@ -289,11 +354,11 @@ if st.button("🚀 ประมวลผลและสร้างโครง�
                     target_table = doc.tables[0]
                     header_row_index = 0
                 
-                # กำหนดให้แถวหัวตารางซ้ำที่ด้านบนทุกหน้าเมื่อขึ้นหน้าใหม่
+                # สั่งซ้ำหัวตารางทุกหน้า
                 if header_row_index >= 0:
                     set_repeat_table_header(target_table.rows[header_row_index])
                 
-                # หยอดข้อมูลตาราง 6 คอลัมน์ให้ตรงช่อง
+                # หยอดข้อมูลตาราง 6 คอลัมน์แบบตรงช่อง 100%
                 for item in plans:
                     row_cells = target_table.add_row().cells
                     
@@ -302,23 +367,19 @@ if st.button("🚀 ประมวลผลและสร้างโครง�
                     row_cells[0].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
                     
                     # คอลัมน์ 1: หัวข้อ
-                    row_cells[1].text = item.get("topic_full", "")
+                    row_cells[1].text = str(item.get("topic_title", ""))
                     
                     # คอลัมน์ 2: Teaching Point
-                    tp = item.get("teaching_points", [])
-                    row_cells[2].text = "\n".join(tp) if isinstance(tp, list) else str(tp)
+                    row_cells[2].text = str(item.get("teaching_points", ""))
                     
                     # คอลัมน์ 3: กิจกรรม
-                    acts = item.get("activities", [])
-                    row_cells[3].text = "\n".join(acts) if isinstance(acts, list) else str(acts)
+                    row_cells[3].text = str(item.get("activities", ""))
                     
-                    # คอลัมน์ 4: สื่อ (เชื่อมโยงตามกิจกรรม)
-                    meds = item.get("media", [])
-                    row_cells[4].text = "\n".join([f"- {m}" for m in meds]) if isinstance(meds, list) else str(meds)
+                    # คอลัมน์ 4: สื่อ
+                    row_cells[4].text = str(item.get("media", ""))
                     
-                    # คอลัมน์ 5: วัดผล (เชื่อมโยงตามกิจกรรม)
-                    evals = item.get("assessment", [])
-                    row_cells[5].text = "\n".join([f"- {e}" for e in evals]) if isinstance(evals, list) else str(evals)
+                    # คอลัมน์ 5: วัดผล
+                    row_cells[5].text = str(item.get("assessment", ""))
                     
                     for cell in row_cells:
                         set_cell_font(cell, font_name="TH SarabunPSK", font_size=Pt(14))
@@ -329,7 +390,7 @@ if st.button("🚀 ประมวลผลและสร้างโครง�
                 
                 status.update(label="✅ ดำเนินการสร้างโครงการสอนสำเร็จ!", state="complete", expanded=False)
                 st.balloons()
-                st.success("🎉 ระบบสร้างเอกสารโครงการสอนเสร็จสมบูรณ์เรียบร้อยแล้ว")
+                st.success("🎉 ระบบจัดโครงสร้างโครงการสอนเสร็จสมบูรณ์เรียบร้อยแล้ว")
                 
                 st.download_button(
                     label=f"📥 ดาวน์โหลดโครงการสอน_{course_code_input}.docx",
