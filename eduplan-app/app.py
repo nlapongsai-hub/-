@@ -11,7 +11,7 @@ from google import genai
 from google.genai import types
 
 # ----------------------------------------------------
-# 1. การตั้งค่าระบบความปลอดภัยและ UI
+# 1. การตั้งค่าระบบความปลอดภัยและส่วนประสานงาน (UI)
 # ----------------------------------------------------
 SYSTEM_PASSCODE = "0863449483"
 
@@ -86,7 +86,7 @@ def extract_course_plan(api_key: str, file_bytes: bytes, mime_type: str, total_w
 3. teaching_points: จุดประสงค์เชิงพฤติกรรม 3-4 ข้อ สังเคราะห์จากสมรรถนะย่อย ความรู้ และทักษะ
 4. activities: กิจกรรมการจัดการเรียนรู้เชิงรุก (Active Learning 4 ขั้นตอน: 1.ขั้นนำเข้าสู่บทเรียน 2.ขั้นให้ความรู้/ศึกษาค้นคว้า 3.ขั้นฝึกปฏิบัติการ 4.ขั้นสรุปและประเมินผล)
 5. media (สื่อการเรียนรู้): **ต้องอิงและเชื่อมโยงโดยตรงกับสิ่งที่ระบุในคอลัมน์ 'กิจกรรม (activities)'** 
-   - ในกิจกรรมใช้อะไร สื่อในช่องนี้ต้องมีสิ่งนั้นอย่างเฉพาะเจาะจง ห้ามใส่กว้างๆ 
+   - ในกิจกรรมระบุให้ทำอะไร สื่อในช่องนี้ต้องมีสิ่งนั้นอย่างเฉพาะเจาะจง ห้ามใส่กว้างๆ 
    - เช่น ถ้ากิจกรรมให้นักเรียนฝึกเปิดใบสั่งซื้อ สื่อต้องเป็น: แบบฟอร์มใบสั่งซื้อ (Purchase Order: PO), ระบบโปรแกรม ERP จำลอง
    - เช่น ถ้ากิจกรรมให้คำนวณพื้นที่คลังสินค้า สื่อต้องเป็น: แผนผัง Layout คลังสินค้า, สเปกพาเลทและชั้นวาง, โปรแกรมคำนวณ Excel
    - พร้อมระบุสื่อพื้นฐานที่ใช้ เช่น สไลด์มัลติมีเดียหน่วยที่..., ใบความรู้และใบงานที่...
@@ -94,7 +94,7 @@ def extract_course_plan(api_key: str, file_bytes: bytes, mime_type: str, total_w
    - วัดจากชิ้นงานหรือการกระทำที่เด็กทำจริงในขั้นกิจกรรมปฏิบัติ
    - เช่น แบบประเมินทักษะการปฏิบัติงาน (Rubric) การคีย์ข้อมูล PO, แบบทดสอบย่อยท้ายคาบ, แบบประเมินการนำเสนอผลงานกลุ่ม, แบบสังเกตพฤติกรรมการมีส่วนร่วม
 
-ส่งคืนเป็น Pure JSON Array เท่านั้น ห้ามมี markdown ครอบ:
+ส่งคืนเป็น Pure JSON Array เท่านั้น ห้ามมี markdown code block ครอบ:
 [
   {{
     "week": 1,
@@ -106,11 +106,12 @@ def extract_course_plan(api_key: str, file_bytes: bytes, mime_type: str, total_w
   }}
 ]
 """
-    candidate_models = ["gemini-2.5-flash", "gemini-3.6-flash"]
+    # ใช้ gemini-2.5-flash และ gemini-2.5-flash-lite เพื่อความเสถียรสูงสุด ไม่ติด Error 503
+    candidate_models = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3.6-flash"]
     last_error = None
 
     for model_name in candidate_models:
-        for attempt in range(3):
+        for attempt in range(2):
             try:
                 response = client.models.generate_content(
                     model=model_name,
@@ -121,14 +122,11 @@ def extract_course_plan(api_key: str, file_bytes: bytes, mime_type: str, total_w
             except Exception as e:
                 last_error = e
                 err_str = str(e)
-                if ("503" in err_str or "UNAVAILABLE" in err_str) and attempt < 2:
-                    time.sleep(4 * (attempt + 1))
+                if ("503" in err_str or "UNAVAILABLE" in err_str) and attempt < 1:
+                    time.sleep(3)
                     continue
-                elif "503" in err_str or "UNAVAILABLE" in err_str:
-                    break
                 else:
-                    time.sleep(2)
-                    continue
+                    break
 
     raise last_error
 
@@ -149,7 +147,7 @@ def set_cell_font(cell, font_name="TH SarabunPSK", font_size=Pt(14), bold=False)
             rPr.append(rFonts)
 
 def set_repeat_table_header(row):
-    """ฟังก์ชันสั่งให้แถวหัวตารางปรากฏซ้ำทุกหน้าเมื่อเอกสารขึ้นหน้าใหม่"""
+    """คำสั่ง XML ให้แถวหัวตารางแสดงซ้ำที่ด้านบนทุกหน้าอัตโนมัติเมื่อเอกสารขึ้นหน้าใหม่"""
     trPr = row._tr.get_or_add_trPr()
     tblHeader = OxmlElement('w:tblHeader')
     trPr.append(tblHeader)
@@ -207,9 +205,11 @@ with col_info:
     
     c_y, c_w, c_h = st.columns(3)
     with c_y:
+        # ปวส. มีปี 1-2 ส่วน ปวช. มีปี 1-3
         year_opts = [1, 2] if is_pvs else [1, 2, 3]
         year_input = st.selectbox("ระดับชั้นปี:", year_opts, index=0)
     with c_w:
+        # ปวส. กำหนดเริ่มต้น 15 สัปดาห์ ส่วน ปวช. เริ่มต้น 18 สัปดาห์
         default_weeks = 15 if is_pvs else 18
         weeks_input = st.number_input("สัปดาห์ต่อภาคเรียน:", min_value=1, max_value=22, value=default_weeks)
     with c_h:
@@ -289,11 +289,11 @@ if st.button("🚀 ประมวลผลและสร้างโครง�
                     target_table = doc.tables[0]
                     header_row_index = 0
                 
-                # สั่งซ้ำหัวตาราง (Repeat Header Row) เมื่อขึ้นหน้าใหม่อัตโนมัติ
+                # กำหนดให้แถวหัวตารางซ้ำที่ด้านบนทุกหน้าเมื่อขึ้นหน้าใหม่
                 if header_row_index >= 0:
                     set_repeat_table_header(target_table.rows[header_row_index])
                 
-                # หยอดข้อมูลตาราง 6 คอลัมน์ให้ตรงเป๊ะ
+                # หยอดข้อมูลตาราง 6 คอลัมน์ให้ตรงช่อง
                 for item in plans:
                     row_cells = target_table.add_row().cells
                     
@@ -312,11 +312,11 @@ if st.button("🚀 ประมวลผลและสร้างโครง�
                     acts = item.get("activities", [])
                     row_cells[3].text = "\n".join(acts) if isinstance(acts, list) else str(acts)
                     
-                    # คอลัมน์ 4: สื่อ (อิงจากกิจกรรม)
+                    # คอลัมน์ 4: สื่อ (เชื่อมโยงตามกิจกรรม)
                     meds = item.get("media", [])
                     row_cells[4].text = "\n".join([f"- {m}" for m in meds]) if isinstance(meds, list) else str(meds)
                     
-                    # คอลัมน์ 5: วัดผล (อิงจากกิจกรรม)
+                    # คอลัมน์ 5: วัดผล (เชื่อมโยงตามกิจกรรม)
                     evals = item.get("assessment", [])
                     row_cells[5].text = "\n".join([f"- {e}" for e in evals]) if isinstance(evals, list) else str(evals)
                     
