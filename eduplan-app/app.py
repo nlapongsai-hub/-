@@ -72,35 +72,40 @@ if not st.session_state.authenticated:
     st.stop()
 
 # ----------------------------------------------------
-# 2. ฟังก์ชัน AI สกัดเนื้อหา (ระบบ Multi-Model Auto-Fallback ป้องกัน 503)
+# 2. ฟังก์ชัน AI สกัดเนื้อหา (เน้นคิด สื่อ + วัดผล สัมพันธ์กับ กิจกรรม)
 # ----------------------------------------------------
 def extract_course_plan(api_key: str, file_bytes: bytes, mime_type: str, total_weeks: int, course_name: str):
     client = genai.Client(api_key=api_key)
     prompt = f"""
-คุณคือผู้เชี่ยวชาญการจัดทำโครงการสอนอาชีวศึกษา (สอศ.)
-จงอ่านไฟล์ตารางวิเคราะห์งานวิชา '{course_name}' แล้วกระจายเนื้อหาจัดทำเป็น 'ตารางโครงการสอนต่อภาคเรียน' ให้ครบจำนวน {total_weeks} สัปดาห์ (สัปดาห์ที่ 1 ถึง {total_weeks})
+คุณคือผู้เชี่ยวชาญการจัดทำหลักสูตรและโครงการสอนระดับอาชีวศึกษา (มาตรฐาน สอศ.)
+จงอ่านเนื้อหาจากไฟล์ตารางวิเคราะห์งานวิชา '{course_name}' ที่แนบมานี้ แล้วสังเคราะห์จัดทำเป็น 'ตารางโครงการสอนรายสัปดาห์' ให้ครบถ้วนจำนวน {total_weeks} สัปดาห์ (สัปดาห์ที่ 1 ถึง {total_weeks})
 
-เกณฑ์การสร้างเนื้อหาแต่ละสัปดาห์:
+*** หลักการออกแบบเนื้อหาเชิงลึก (เน้นความเชื่อมโยง 100%): ***
 1. week: ตัวเลขสัปดาห์ (1 ถึง {total_weeks})
 2. topic_full: ข้อความ 2 บรรทัด (บรรทัดแรก: หน่วยที่... ชื่อหน่วย / บรรทัดสอง: เรื่อง...)
 3. teaching_points: จุดประสงค์เชิงพฤติกรรม 3-4 ข้อ สังเคราะห์จากสมรรถนะย่อย ความรู้ และทักษะ
-4. activities: กิจกรรมการจัดการเรียนรู้เชิงรุก (Active Learning 4 ขั้นตอน: 1.ขั้นนำ 2.ขั้นสอน/ศึกษา 3.ขั้นปฏิบัติ 4.ขั้นสรุปและประเมินผล)
-5. media: สื่อการเรียนรู้ที่ 'ตรงตามบริบทเฉพาะของหน่วยนั้นๆ' (เช่น หากเป็นงานจัดซื้อ ระบุ แบบฟอร์มใบขอซื้อ PR/PO, ระบบ ERP โมดูลจัดซื้อ; หากเป็นงานคลังสินค้า ระบุ เครื่องอ่านบาร์โค้ด, แผนผัง Bin Location; หากเป็นงานซัพพลายเชน ระบุ แผนภาพห่วงโซ่อุปทาน SCOR Model, ซอฟต์แวร์จำลอง พร้อมสไลด์และใบงาน)
-6. assessment: การวัดและประเมินผลที่ตรงกับทักษะจริง (เช่น แบบประเมินทักษะ Rubric, แบบทดสอบย่อย, การตรวจสอบเอกสารปฏิบัติงาน, สังเกตพฤติกรรม)
+4. activities: กิจกรรมการจัดการเรียนรู้เชิงรุก (Active Learning 4 ขั้นตอน: 1.ขั้นนำเข้าสู่บทเรียน 2.ขั้นให้ความรู้/ศึกษาค้นคว้า 3.ขั้นฝึกปฏิบัติการ 4.ขั้นสรุปและประเมินผล)
+5. media (สื่อการเรียนรู้): **ต้องอิงและเชื่อมโยงโดยตรงกับสิ่งที่ระบุในคอลัมน์ 'กิจกรรม (activities)'** 
+   - ในกิจกรรมใช้อะไร สื่อในช่องนี้ต้องมีสิ่งนั้นอย่างเฉพาะเจาะจง ห้ามใส่กว้างๆ 
+   - เช่น ถ้ากิจกรรมให้นักเรียนฝึกเปิดใบสั่งซื้อ สื่อต้องเป็น: แบบฟอร์มใบสั่งซื้อ (Purchase Order: PO), ระบบโปรแกรม ERP จำลอง
+   - เช่น ถ้ากิจกรรมให้คำนวณพื้นที่คลังสินค้า สื่อต้องเป็น: แผนผัง Layout คลังสินค้า, สเปกพาเลทและชั้นวาง, โปรแกรมคำนวณ Excel
+   - พร้อมระบุสื่อพื้นฐานที่ใช้ เช่น สไลด์มัลติมีเดียหน่วยที่..., ใบความรู้และใบงานที่...
+6. assessment (การวัดและประเมินผล): **ต้องอิงและเชื่อมโยงโดยตรงกับคอลัมน์ 'กิจกรรม (activities)' และ 'Teaching Point'**
+   - วัดจากชิ้นงานหรือการกระทำที่เด็กทำจริงในขั้นกิจกรรมปฏิบัติ
+   - เช่น แบบประเมินทักษะการปฏิบัติงาน (Rubric) การคีย์ข้อมูล PO, แบบทดสอบย่อยท้ายคาบ, แบบประเมินการนำเสนอผลงานกลุ่ม, แบบสังเกตพฤติกรรมการมีส่วนร่วม
 
-ส่งคืนเป็น Pure JSON Array เท่านั้น:
+ส่งคืนเป็น Pure JSON Array เท่านั้น ห้ามมี markdown ครอบ:
 [
   {{
     "week": 1,
     "topic_full": "หน่วยที่ ...\\nเรื่อง ...",
     "teaching_points": ["จุดประสงค์ 1", "จุดประสงค์ 2"],
     "activities": ["1. ขั้นนำ: ...", "2. ขั้นสอน: ...", "3. ขั้นปฏิบัติ: ...", "4. ขั้นสรุป: ..."],
-    "media": ["สื่อ 1", "สื่อ 2"],
-    "assessment": ["การวัดผล 1", "การวัดผล 2"]
+    "media": ["สื่อที่ใช้จริงในกิจกรรม 1", "สื่อที่ใช้จริงในกิจกรรม 2"],
+    "assessment": ["เครื่องมือวัดผลที่ตรงกับกิจกรรม 1", "เครื่องมือวัดผล 2"]
   }}
 ]
 """
-    # สลับโมเดลอัตโนมัติหากติด 503 เซิร์ฟเวอร์หนาแน่น
     candidate_models = ["gemini-2.5-flash", "gemini-3.6-flash"]
     last_error = None
 
@@ -117,10 +122,10 @@ def extract_course_plan(api_key: str, file_bytes: bytes, mime_type: str, total_w
                 last_error = e
                 err_str = str(e)
                 if ("503" in err_str or "UNAVAILABLE" in err_str) and attempt < 2:
-                    time.sleep(4 * (attempt + 1))  # หน่วงเวลารอคิว 4s, 8s
+                    time.sleep(4 * (attempt + 1))
                     continue
                 elif "503" in err_str or "UNAVAILABLE" in err_str:
-                    break  # เปลี่ยนไปลองโมเดลถัดไปทันที
+                    break
                 else:
                     time.sleep(2)
                     continue
@@ -142,6 +147,12 @@ def set_cell_font(cell, font_name="TH SarabunPSK", font_size=Pt(14), bold=False)
             rFonts.set(qn('w:hAnsi'), font_name)
             rFonts.set(qn('w:cs'), font_name)
             rPr.append(rFonts)
+
+def set_repeat_table_header(row):
+    """ฟังก์ชันสั่งให้แถวหัวตารางปรากฏซ้ำทุกหน้าเมื่อเอกสารขึ้นหน้าใหม่"""
+    trPr = row._tr.get_or_add_trPr()
+    tblHeader = OxmlElement('w:tblHeader')
+    trPr.append(tblHeader)
 
 def replace_placeholders(doc, replacements):
     for table in doc.tables:
@@ -177,7 +188,7 @@ st.markdown("""
     <div class="hero-title">📋 ระบบจัดทำโครงการสอนอัจฉริยะ (สอศ.)</div>
     <div class="hero-desc">
         วิเคราะห์และสกัดข้อมูลจากตารางวิเคราะห์งานสู่โครงการสอนอัตโนมัติ<br>
-        รองรับ ปวส. (15 สัปดาห์ | ปี 1-2) และ ปวช. (18 สัปดาห์ | ปี 1-3) พร้อมออกแบบสื่อและการวัดผลตรงบริบท
+        ระบบออกแบบกิจกรรมเชิงรุก สื่อ และการวัดผลที่เชื่อมโยงตรงตามบริบท พร้อมซ้ำหัวตารางทุกหน้า
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -196,11 +207,9 @@ with col_info:
     
     c_y, c_w, c_h = st.columns(3)
     with c_y:
-        # ปวส. มีปี 1-2, ปวช. มีปี 1-3
         year_opts = [1, 2] if is_pvs else [1, 2, 3]
         year_input = st.selectbox("ระดับชั้นปี:", year_opts, index=0)
     with c_w:
-        # ปวส. 15 สัปดาห์, ปวช. 18 สัปดาห์
         default_weeks = 15 if is_pvs else 18
         weeks_input = st.number_input("สัปดาห์ต่อภาคเรียน:", min_value=1, max_value=22, value=default_weeks)
     with c_h:
@@ -231,7 +240,7 @@ if st.button("🚀 ประมวลผลและสร้างโครง�
                 mime = "application/pdf" if analysis_file.name.endswith(".pdf") else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                 file_bytes = analysis_file.getvalue()
                 
-                st.write("🤖 กำลังวิเคราะห์เนื้อหา ออกแบบกิจกรรม Active Learning, สื่อ และการวัดผลเฉพาะบริบท...")
+                st.write("🤖 กำลังวิเคราะห์เนื้อหา เชื่อมโยงกิจกรรม สื่อ และการวัดผลเฉพาะบริบท...")
                 plans = extract_course_plan(
                     api_key=api_key,
                     file_bytes=file_bytes,
@@ -240,7 +249,7 @@ if st.button("🚀 ประมวลผลและสร้างโครง�
                     course_name=course_name_input
                 )
                 
-                st.write("📝 กำลังบรรจุข้อมูลและผสานหัวกระดาษลงในแบบฟอร์ม Word...")
+                st.write("📝 กำลังบรรจุข้อมูล กำหนดหัวตารางซ้ำทุกหน้า และผสานแบบฟอร์ม Word...")
                 doc = Document(template_file)
                 
                 CHECK, UNCHECK = "☑", "☐"
@@ -266,18 +275,25 @@ if st.button("🚀 ประมวลผลและสร้างโครง�
                 replace_placeholders(doc, replacements)
                 
                 target_table = None
+                header_row_index = -1
                 for tbl in doc.tables:
-                    for row in tbl.rows:
+                    for idx, row in enumerate(tbl.rows):
                         row_text = " ".join([c.text for c in row.cells])
                         if "ส.ป." in row_text or "Teaching Point" in row_text:
                             target_table = tbl
+                            header_row_index = idx
                             break
                     if target_table:
                         break
                 if not target_table:
                     target_table = doc.tables[0]
+                    header_row_index = 0
                 
-                # หยอดข้อมูลตาราง 6 คอลัมน์ ไม่สลับช่อง
+                # สั่งซ้ำหัวตาราง (Repeat Header Row) เมื่อขึ้นหน้าใหม่อัตโนมัติ
+                if header_row_index >= 0:
+                    set_repeat_table_header(target_table.rows[header_row_index])
+                
+                # หยอดข้อมูลตาราง 6 คอลัมน์ให้ตรงเป๊ะ
                 for item in plans:
                     row_cells = target_table.add_row().cells
                     
@@ -296,11 +312,11 @@ if st.button("🚀 ประมวลผลและสร้างโครง�
                     acts = item.get("activities", [])
                     row_cells[3].text = "\n".join(acts) if isinstance(acts, list) else str(acts)
                     
-                    # คอลัมน์ 4: สื่อ
+                    # คอลัมน์ 4: สื่อ (อิงจากกิจกรรม)
                     meds = item.get("media", [])
                     row_cells[4].text = "\n".join([f"- {m}" for m in meds]) if isinstance(meds, list) else str(meds)
                     
-                    # คอลัมน์ 5: วัดผล
+                    # คอลัมน์ 5: วัดผล (อิงจากกิจกรรม)
                     evals = item.get("assessment", [])
                     row_cells[5].text = "\n".join([f"- {e}" for e in evals]) if isinstance(evals, list) else str(evals)
                     
