@@ -95,7 +95,7 @@ def extract_from_analysis_doc(api_key: str, file_bytes: bytes, mime_type: str, t
 """
 
     response = client.models.generate_content(
-        model="gemini-3.6-flash",
+        model="gemini-2.5-flash",
         contents=[
             types.Part.from_bytes(data=file_bytes, mime_type=mime_type),
             prompt
