@@ -10,6 +10,9 @@ from docx.oxml.ns import qn
 from google import genai
 from google.genai import types
 
+# ----------------------------------------------------
+# 1. การตั้งค่าระบบความปลอดภัยและ UI
+# ----------------------------------------------------
 SYSTEM_PASSCODE = "0863449483"
 
 st.set_page_config(
@@ -68,6 +71,9 @@ if not st.session_state.authenticated:
     login_gate()
     st.stop()
 
+# ----------------------------------------------------
+# 2. ฟังก์ชัน AI สกัดเนื้อหา (ระบบ Multi-Model Auto-Fallback ป้องกัน 503)
+# ----------------------------------------------------
 def extract_course_plan(api_key: str, file_bytes: bytes, mime_type: str, total_weeks: int, course_name: str):
     client = genai.Client(api_key=api_key)
     prompt = f"""
@@ -79,8 +85,8 @@ def extract_course_plan(api_key: str, file_bytes: bytes, mime_type: str, total_w
 2. topic_full: ข้อความ 2 บรรทัด (บรรทัดแรก: หน่วยที่... ชื่อหน่วย / บรรทัดสอง: เรื่อง...)
 3. teaching_points: จุดประสงค์เชิงพฤติกรรม 3-4 ข้อ สังเคราะห์จากสมรรถนะย่อย ความรู้ และทักษะ
 4. activities: กิจกรรมการจัดการเรียนรู้เชิงรุก (Active Learning 4 ขั้นตอน: 1.ขั้นนำ 2.ขั้นสอน/ศึกษา 3.ขั้นปฏิบัติ 4.ขั้นสรุปและประเมินผล)
-5. media: สื่อการเรียนรู้ที่ตรงกับบริบทเนื้อหาของหน่วยนั้นๆ (เช่น โมดูล ERP, Flowchart, แบบฟอร์มจัดซื้อ, อุปกรณ์บาร์โค้ด พร้อมสไลด์และใบงาน)
-6. assessment: การวัดและประเมินผลที่ตรงกับทักษะจริง (เช่น แบบประเมินทักษะ Rubric, แบบทดสอบย่อย, ตรวจเอกสารผลงาน, สังเกตพฤติกรรม)
+5. media: สื่อการเรียนรู้ที่ 'ตรงตามบริบทเฉพาะของหน่วยนั้นๆ' (เช่น หากเป็นงานจัดซื้อ ระบุ แบบฟอร์มใบขอซื้อ PR/PO, ระบบ ERP โมดูลจัดซื้อ; หากเป็นงานคลังสินค้า ระบุ เครื่องอ่านบาร์โค้ด, แผนผัง Bin Location; หากเป็นงานซัพพลายเชน ระบุ แผนภาพห่วงโซ่อุปทาน SCOR Model, ซอฟต์แวร์จำลอง พร้อมสไลด์และใบงาน)
+6. assessment: การวัดและประเมินผลที่ตรงกับทักษะจริง (เช่น แบบประเมินทักษะ Rubric, แบบทดสอบย่อย, การตรวจสอบเอกสารปฏิบัติงาน, สังเกตพฤติกรรม)
 
 ส่งคืนเป็น Pure JSON Array เท่านั้น:
 [
@@ -94,21 +100,32 @@ def extract_course_plan(api_key: str, file_bytes: bytes, mime_type: str, total_w
   }}
 ]
 """
-    max_retries = 3
-    for attempt in range(max_retries):
-        try:
-            response = client.models.generate_content(
-                model="gemini-3.6-flash",
-                contents=[types.Part.from_bytes(data=file_bytes, mime_type=mime_type), prompt],
-                config=types.GenerateContentConfig(response_mime_type="application/json")
-            )
-            return json.loads(response.text)
-        except Exception as e:
-            err_str = str(e)
-            if ("429" in err_str or "503" in err_str or "RESOURCE_EXHAUSTED" in err_str) and attempt < max_retries - 1:
-                time.sleep(10 * (attempt + 1))
-                continue
-            raise e
+    # สลับโมเดลอัตโนมัติหากติด 503 เซิร์ฟเวอร์หนาแน่น
+    candidate_models = ["gemini-2.5-flash", "gemini-3.6-flash"]
+    last_error = None
+
+    for model_name in candidate_models:
+        for attempt in range(3):
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=[types.Part.from_bytes(data=file_bytes, mime_type=mime_type), prompt],
+                    config=types.GenerateContentConfig(response_mime_type="application/json")
+                )
+                return json.loads(response.text)
+            except Exception as e:
+                last_error = e
+                err_str = str(e)
+                if ("503" in err_str or "UNAVAILABLE" in err_str) and attempt < 2:
+                    time.sleep(4 * (attempt + 1))  # หน่วงเวลารอคิว 4s, 8s
+                    continue
+                elif "503" in err_str or "UNAVAILABLE" in err_str:
+                    break  # เปลี่ยนไปลองโมเดลถัดไปทันที
+                else:
+                    time.sleep(2)
+                    continue
+
+    raise last_error
 
 def set_cell_font(cell, font_name="TH SarabunPSK", font_size=Pt(14), bold=False):
     for p in cell.paragraphs:
@@ -141,7 +158,7 @@ def replace_placeholders(doc, replacements):
                 p.text = p.text.replace(k, str(v))
 
 # ----------------------------------------------------
-# 3. ส่วนควบคุม UI
+# 3. ส่วนรับข้อมูลหน้าเว็บ
 # ----------------------------------------------------
 with st.sidebar:
     st.markdown("### ⚙️ การตั้งค่าระบบ")
@@ -179,9 +196,11 @@ with col_info:
     
     c_y, c_w, c_h = st.columns(3)
     with c_y:
+        # ปวส. มีปี 1-2, ปวช. มีปี 1-3
         year_opts = [1, 2] if is_pvs else [1, 2, 3]
         year_input = st.selectbox("ระดับชั้นปี:", year_opts, index=0)
     with c_w:
+        # ปวส. 15 สัปดาห์, ปวช. 18 สัปดาห์
         default_weeks = 15 if is_pvs else 18
         weeks_input = st.number_input("สัปดาห์ต่อภาคเรียน:", min_value=1, max_value=22, value=default_weeks)
     with c_h:
@@ -258,6 +277,7 @@ if st.button("🚀 ประมวลผลและสร้างโครง�
                 if not target_table:
                     target_table = doc.tables[0]
                 
+                # หยอดข้อมูลตาราง 6 คอลัมน์ ไม่สลับช่อง
                 for item in plans:
                     row_cells = target_table.add_row().cells
                     
