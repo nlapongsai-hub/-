@@ -22,7 +22,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# ปรับปรุง CSS ให้สะอาด คมชัด และไม่ทับซ้อนกัน
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap');
@@ -31,7 +30,6 @@ st.markdown("""
         font-family: 'Prompt', sans-serif;
     }
     
-    /* ป้องกันตัวหนังสือและไอคอนทับซ้อนกัน */
     label, p {
         line-height: 1.6 !important;
         margin-bottom: 6px !important;
@@ -102,7 +100,6 @@ st.markdown("""
         margin-bottom: 4px;
     }
     
-    /* สไตล์ปุ่มหลัก */
     div.stButton > button:first-child {
         background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
         color: white;
@@ -158,9 +155,10 @@ if not st.session_state.authenticated:
     st.stop()
 
 # ----------------------------------------------------
-# 2. ฟังก์ชันจัดการ Word XML และระบบเลขหน้า
+# 2. ฟังก์ชันจัดการ Word XML, เลขหน้า Dynamic และซ้ำหัวตาราง
 # ----------------------------------------------------
-def add_page_number_field(run):
+def add_page_number_field(run, font_name="TH SarabunPSK", font_size=Pt(14)):
+    """แทรกโค้ดฟิลด์ Word PAGE อัตโนมัติ"""
     fldChar1 = OxmlElement('w:fldChar')
     fldChar1.set(qn('w:fldCharType'), 'begin')
     instrText = OxmlElement('w:instrText')
@@ -170,11 +168,20 @@ def add_page_number_field(run):
     fldChar2.set(qn('w:fldCharType'), 'separate')
     fldChar3 = OxmlElement('w:fldChar')
     fldChar3.set(qn('w:fldCharType'), 'end')
+    
     r = run._r
     r.append(fldChar1)
     r.append(instrText)
     r.append(fldChar2)
     r.append(fldChar3)
+    
+    run.font.name = font_name
+    run.font.size = font_size
+    rFonts = OxmlElement('w:rFonts')
+    rFonts.set(qn('w:ascii'), font_name)
+    rFonts.set(qn('w:hAnsi'), font_name)
+    rFonts.set(qn('w:cs'), font_name)
+    run._r.get_or_add_rPr().append(rFonts)
 
 def set_cell_font(cell, font_name="TH SarabunPSK", font_size=Pt(14), bold=False):
     for p in cell.paragraphs:
@@ -193,22 +200,68 @@ def set_cell_font(cell, font_name="TH SarabunPSK", font_size=Pt(14), bold=False)
             rPr.append(rFonts)
 
 def set_repeat_table_header(row):
+    """กำหนด XML tblHeader ให้แถวนี้ทำซ้ำทุกหน้าที่ขึ้นใหม่"""
     trPr = row._tr.get_or_add_trPr()
-    tblHeader = OxmlElement('w:tblHeader')
-    trPr.append(tblHeader)
+    if trPr.find(qn('w:tblHeader')) is None:
+        tblHeader = OxmlElement('w:tblHeader')
+        trPr.append(tblHeader)
+
+def set_row_cant_split(row):
+    """ป้องกันข้อความในแถวแตกครึ่งหน้า"""
+    trPr = row._tr.get_or_add_trPr()
+    if trPr.find(qn('w:cantSplit')) is None:
+        cantSplit = OxmlElement('w:cantSplit')
+        trPr.append(cantSplit)
+
+def enable_update_fields_on_open(doc):
+    """ตั้งค่าให้ Word อัปเดตเลขหน้าอัตโนมัติทันทีที่เปิดไฟล์"""
+    try:
+        settings = doc.settings._element
+        if settings.find(qn('w:updateFields')) is None:
+            updateFields = OxmlElement('w:updateFields')
+            updateFields.set(qn('w:val'), 'true')
+            settings.append(updateFields)
+    except Exception:
+        pass
+
+def setup_header_page_and_sheet_numbers(doc):
+    """เปลี่ยน แผ่นที่ และ หน้าที่ ให้รันเลขหน้าตามจริงของเอกสารทุกหน้า"""
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                # 1. จัดการ แผ่นที่ : 1 -> ให้รันเป็น แผ่นที่ : {PAGE}
+                if "แผ่นที่" in cell.text:
+                    for p in cell.paragraphs:
+                        if "แผ่นที่" in p.text:
+                            p.text = "แผ่นที่ : "
+                            p.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                            run_lbl = p.runs[0]
+                            run_lbl.font.name = "TH SarabunPSK"
+                            run_lbl.font.size = Pt(14)
+                            add_page_number_field(p.add_run())
+
+                # 2. จัดการ หน้าที่ -> ให้บรรทัดล่างรันเป็น {PAGE}
+                if "หน้าที่" in cell.text:
+                    if len(cell.paragraphs) >= 2:
+                        cell.paragraphs[0].text = "หน้าที่"
+                        cell.paragraphs[0].paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                        set_cell_font(cell.paragraphs[0], font_name="TH SarabunPSK", font_size=Pt(14))
+                        
+                        p_num = cell.paragraphs[1]
+                        p_num.text = ""
+                        p_num.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                        add_page_number_field(p_num.add_run())
+                    else:
+                        p = cell.paragraphs[0]
+                        p.text = "หน้าที่ "
+                        p.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                        set_cell_font(p, font_name="TH SarabunPSK", font_size=Pt(14))
+                        add_page_number_field(p.add_run())
 
 def process_doc_placeholders(doc, replacements):
     for table in doc.tables:
         for row in table.rows:
             for cell in row.cells:
-                if "{{ page_no }}" in cell.text or "{{page_no}}" in cell.text:
-                    for p in cell.paragraphs:
-                        if "{{ page_no }}" in p.text or "{{page_no}}" in p.text:
-                            p.text = p.text.replace("{{ page_no }}", "").replace("{{page_no}}", "")
-                            run = p.add_run()
-                            add_page_number_field(run)
-                            run.font.name = "TH SarabunPSK"
-                            run.font.size = Pt(14)
                 for k, v in replacements.items():
                     if k in cell.text:
                         for p in cell.paragraphs:
@@ -216,18 +269,12 @@ def process_doc_placeholders(doc, replacements):
                                 p.text = p.text.replace(k, str(v))
 
     for p in doc.paragraphs:
-        if "{{ page_no }}" in p.text or "{{page_no}}" in p.text:
-            p.text = p.text.replace("{{ page_no }}", "").replace("{{page_no}}", "")
-            run = p.add_run()
-            add_page_number_field(run)
-            run.font.name = "TH SarabunPSK"
-            run.font.size = Pt(14)
         for k, v in replacements.items():
             if k in p.text:
                 p.text = p.text.replace(k, str(v))
 
 # ----------------------------------------------------
-# 3. ฟังก์ชัน AI สกัดเนื้อหา (ระบบ Bulletproof ป้องกัน 503)
+# 3. ฟังก์ชัน AI สกัดเนื้อหา (Bulletproof Mode)
 # ----------------------------------------------------
 def get_file_content_for_ai(file_bytes: bytes, file_name: str, mime_type: str):
     if file_name.endswith(".docx"):
@@ -332,7 +379,7 @@ def extract_course_plan(api_key: str, content_data, total_weeks: int, course_nam
     return generate_failover_plan(raw_str, total_weeks, course_name)
 
 # ----------------------------------------------------
-# 4. ส่วนรับข้อมูลหน้าเว็บ (Enhanced Layout & Visuals)
+# 4. ส่วนรับข้อมูลหน้าเว็บ
 # ----------------------------------------------------
 with st.sidebar:
     st.markdown("### ⚙️ แผงควบคุมระบบ")
@@ -355,7 +402,7 @@ st.markdown("""
     <div class="hero-title">📋 EduPlan Pro : ระบบจัดทำโครงการสอนอัจฉริยะ</div>
     <div class="hero-desc">
         ออกแบบเพื่อครูอาชีวศึกษาโดยเฉพาะ สกัดข้อมูลตารางวิเคราะห์งานสู่โครงการสอน 6 คอลัมน์มาตรฐาน สอศ.<br>
-        เชื่อมโยงกิจกรรม Active Learning สื่อเฉพาะทาง และการประเมินผลอัตโนมัติ รองรับ ปวช. และ ปวส.
+        เชื่อมโยงกิจกรรม Active Learning สื่อเฉพาะทาง และการประเมินผลอัตโนมัติ พร้อมซ้ำหัวตารางและรันเลขหน้า
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -367,8 +414,8 @@ with col_file:
     <div class="section-card">
         <div class="section-header">📁 ส่วนที่ 1 : เอกสารแม่แบบและตารางวิเคราะห์งาน</div>
     """, unsafe_allow_html=True)
-    template_file = st.file_uploader("1. แนบไฟล์แม่แบบวิทยาลัย (templet.docx):", type=["docx"], help="แบบฟอร์มเปล่าของวิทยาลัยที่มีหัวตาราง 6 คอลัมน์")
-    analysis_file = st.file_uploader("2. แนบไฟล์ตารางวิเคราะห์งาน (docx/pdf):", type=["docx", "pdf"], help="ไฟล์วิเคราะห์หลักสูตรรายวิชาที่ต้องการนำมาจัดสัปดาห์")
+    template_file = st.file_uploader("1. แนบไฟล์แม่แบบวิทยาลัย (templet.docx):", type=["docx"])
+    analysis_file = st.file_uploader("2. แนบไฟล์ตารางวิเคราะห์งาน (docx/pdf):", type=["docx", "pdf"])
     st.markdown("</div>", unsafe_allow_html=True)
 
 with col_info:
@@ -396,7 +443,7 @@ with col_info:
     with c_sem:
         sem_input = st.text_input("ภาคเรียนที่:", value="1/2569")
         
-    course_name_input = st.text_input("ชื่อวิชา:", value="การจัดการโลจิสติกส์และซัพพลายเชน")
+    course_name_input = st.text_input("ชื่อวิชา:", value="ซัพพลายเชนเบื้องต้น")
     st.markdown("</div>", unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
@@ -425,8 +472,9 @@ if st.button("🚀 ประมวลผลและสร้างโครง�
                     course_name=course_name_input
                 )
                 
-                st.write("📝 กำลังบรรจุข้อมูลลงในตารางและซ้ำหัวคอลัมน์ทุกหน้า...")
+                st.write("📝 กำลังบรรจุข้อมูล กำหนดหัวตารางซ้ำ และตั้งค่าเลขหน้าทุกหน้า...")
                 doc = Document(template_file)
+                enable_update_fields_on_open(doc)
                 
                 CHECK, UNCHECK = "☑", "☐"
                 if is_pvs:
@@ -444,13 +492,14 @@ if st.button("🚀 ประมวลผลและสร้างโครง�
                     "{{ total_weeks }}": str(weeks_input),
                     "{{ semester }}": sem_input,
                     "{{ year_display }}": y_disp,
-                    "{{ sheet_no }}": "1",
-                    "{{sheet_no}}": "1",
                     "{{ cb_y1 }}": CHECK if year_input == 1 else UNCHECK,
                     "{{ cb_y2 }}": CHECK if year_input == 2 else UNCHECK,
                     "{{ cb_y3 }}": CHECK if year_input == 3 else UNCHECK
                 }
                 process_doc_placeholders(doc, replacements)
+                
+                # เปลี่ยนให้ แผ่นที่ และ หน้าที่ รันเลขอัตโนมัติตามจริง
+                setup_header_page_and_sheet_numbers(doc)
                 
                 target_table = None
                 header_row_index = -1
@@ -467,11 +516,14 @@ if st.button("🚀 ประมวลผลและสร้างโครง�
                     target_table = doc.tables[0]
                     header_row_index = 0
                 
-                if header_row_index >= 0:
-                    set_repeat_table_header(target_table.rows[header_row_index])
+                # สั่งซ้ำหัวตารางอย่างต่อเนื่องตั้งแต่แถว 0 ถึงแถวหัวคอลัมน์ เพื่อให้ซ้ำครบทุกหน้า
+                for r_idx in range(header_row_index + 1):
+                    set_repeat_table_header(target_table.rows[r_idx])
+                    set_row_cant_split(target_table.rows[r_idx])
                 
                 for item in plans:
                     new_row = target_table.add_row()
+                    set_row_cant_split(new_row)
                     row_cells = new_row.cells
                     num_cols = len(row_cells)
                     
