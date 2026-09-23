@@ -12,7 +12,7 @@ from google import genai
 from google.genai import types
 
 # ----------------------------------------------------
-# 1. การตั้งค่าระบบความปลอดภัยและ UI
+# 1. การตั้งค่าระบบความปลอดภัยและส่วนแสดงผล (UI Styling)
 # ----------------------------------------------------
 SYSTEM_PASSCODE = "0863449483"
 
@@ -22,19 +22,102 @@ st.set_page_config(
     layout="wide"
 )
 
+# ปรับปรุง CSS ให้สะอาด คมชัด และไม่ทับซ้อนกัน
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap');
-    * { font-family: 'Prompt', sans-serif !important; }
-    .hero-banner {
-        background: linear-gradient(135deg, #1e3c72 0%, #2a5298 50%, #00c6ff 100%);
-        border-radius: 18px; padding: 25px 30px; color: white; margin-bottom: 25px;
+    
+    html, body, [class*="css"], div, span, p, label, input, button {
+        font-family: 'Prompt', sans-serif;
     }
-    .hero-title { font-size: 2.1rem; font-weight: 700; margin-bottom: 6px; }
-    .hero-desc { font-size: 1rem; opacity: 0.95; font-weight: 300; line-height: 1.5; }
-    .box-header { font-size: 1.15rem; font-weight: 600; color: #1e3c72; margin-bottom: 10px; }
-    .copyright-card {
-        background: #f8fafc; border-left: 4px solid #1e3c72; border-radius: 8px; padding: 12px 16px; margin-top: 20px;
+    
+    /* ป้องกันตัวหนังสือและไอคอนทับซ้อนกัน */
+    label, p {
+        line-height: 1.6 !important;
+        margin-bottom: 6px !important;
+    }
+    
+    .hero-banner {
+        background: linear-gradient(135deg, #0f2b5c 0%, #1e4b8a 60%, #0284c7 100%);
+        border-radius: 16px;
+        padding: 28px 32px;
+        color: #ffffff;
+        margin-bottom: 25px;
+        box-shadow: 0 4px 20px rgba(15, 43, 92, 0.12);
+    }
+    
+    .hero-title {
+        font-size: 2rem;
+        font-weight: 700;
+        margin-bottom: 8px;
+        color: #ffffff;
+        letter-spacing: -0.5px;
+    }
+    
+    .hero-desc {
+        font-size: 0.98rem;
+        opacity: 0.92;
+        font-weight: 300;
+        line-height: 1.6;
+        color: #f1f5f9;
+    }
+    
+    .section-card {
+        background-color: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 14px;
+        padding: 22px 24px;
+        margin-bottom: 20px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.02);
+    }
+    
+    .section-header {
+        font-size: 1.15rem;
+        font-weight: 600;
+        color: #0f2b5c;
+        margin-bottom: 16px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        border-bottom: 2px solid #f1f5f9;
+        padding-bottom: 8px;
+    }
+    
+    .copyright-box {
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-left: 4px solid #0284c7;
+        border-radius: 10px;
+        padding: 14px 18px;
+        margin-top: 25px;
+        font-size: 0.88rem;
+        color: #334155;
+        line-height: 1.6;
+    }
+    
+    .copyright-title {
+        font-weight: 600;
+        color: #0f2b5c;
+        display: block;
+        margin-bottom: 4px;
+    }
+    
+    /* สไตล์ปุ่มหลัก */
+    div.stButton > button:first-child {
+        background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+        color: white;
+        font-weight: 600;
+        font-size: 1.05rem;
+        padding: 12px 24px;
+        border-radius: 10px;
+        border: none;
+        box-shadow: 0 4px 12px rgba(2, 132, 199, 0.25);
+        transition: all 0.2s ease-in-out;
+    }
+    div.stButton > button:first-child:hover {
+        background: linear-gradient(135deg, #0369a1 0%, #075985 100%);
+        box-shadow: 0 6px 16px rgba(2, 132, 199, 0.35);
+        transform: translateY(-1px);
     }
 </style>
 """, unsafe_allow_html=True)
@@ -48,23 +131,25 @@ def login_gate():
         st.markdown("<br><br>", unsafe_allow_html=True)
         st.markdown("""
         <div style="text-align: center; margin-bottom: 20px;">
-            <div style="font-size: 3.5rem;">🏛️</div>
-            <h2 style="font-weight: 700; color: #1e3c72;">EduPlan Pro (AI Engine)</h2>
-            <p style="color: #64748b;">ระบบจัดทำโครงการสอนมาตรฐาน สอศ. ด้วย AI</p>
+            <div style="font-size: 3.5rem; margin-bottom: 10px;">🏛️</div>
+            <h2 style="font-weight: 700; color: #0f2b5c; margin-bottom: 4px;">EduPlan Pro (AI Engine)</h2>
+            <p style="color: #64748b; font-size: 0.95rem;">ระบบจัดทำโครงการสอนมาตรฐาน สอศ. ด้วย AI อัจฉริยะ</p>
         </div>
         """, unsafe_allow_html=True)
-        passcode = st.text_input("🔑 รหัสปลดล็อกสิทธิ์เข้าใช้งาน:", type="password")
-        if st.button("🔓 ปลดล็อกและเข้าสู่ระบบ", type="primary", use_container_width=True):
+        passcode = st.text_input("🔑 รหัสผ่านเพื่อปลดล็อกเข้าใช้งาน:", type="password")
+        if st.button("🔓 ปลดล็อกและเข้าสู่ระบบ", use_container_width=True):
             if passcode == SYSTEM_PASSCODE:
                 st.session_state.authenticated = True
                 st.rerun()
             else:
-                st.error("❌ รหัสผ่านไม่ถูกต้อง")
+                st.error("❌ รหัสผ่านไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง")
+                
         st.markdown("""
-        <div class="copyright-card">
-            <b>ลิขสิทธิ์และการพัฒนา</b><br>
-            นายณัฐวุฒิ หล้าปงสาย ครูผู้ช่วย แผนกวิชาการจัดการโลจิสติกส์และซัพพลายเชน<br>
-            วิทยาลัยเทคนิคจันทบุรี | All Rights Reserved © 2026
+        <div class="copyright-box">
+            <span class="copyright-title">🛡️ ข้อมูลลิขสิทธิ์และการพัฒนา</span>
+            พัฒนาและสงวนลิขสิทธิ์โดย <b>นายณัฐวุฒิ หล้าปงสาย</b> ครูผู้ช่วย<br>
+            แผนกวิชาการจัดการโลจิสติกส์และซัพพลายเชน วิทยาลัยเทคนิคจันทบุรี<br>
+            <i>All Rights Reserved © 2026</i>
         </div>
         """, unsafe_allow_html=True)
 
@@ -163,7 +248,6 @@ def get_file_content_for_ai(file_bytes: bytes, file_name: str, mime_type: str):
     return types.Part.from_bytes(data=file_bytes, mime_type=mime_type)
 
 def generate_failover_plan(content_text: str, total_weeks: int, course_name: str):
-    """ระบบสร้างโครงการสอนสำรองอัตโนมัติหาก API ล้มเหลวต่อเนื่อง"""
     lines = [l.strip() for l in content_text.split("\n") if len(l.strip()) > 3]
     topics = []
     for l in lines:
@@ -245,30 +329,33 @@ def extract_course_plan(api_key: str, content_data, total_weeks: int, course_nam
                 time.sleep(2)
                 continue
 
-    # หากติดข้อจำกัดด้านคิวเซิร์ฟเวอร์ ระบบสำรองจะทำงานทันที
     return generate_failover_plan(raw_str, total_weeks, course_name)
 
 # ----------------------------------------------------
-# 4. ส่วนรับข้อมูลหน้าเว็บ
+# 4. ส่วนรับข้อมูลหน้าเว็บ (Enhanced Layout & Visuals)
 # ----------------------------------------------------
 with st.sidebar:
-    st.markdown("### ⚙️ การตั้งค่าระบบ")
-    st.success("🟢 STATUS: AUTHORIZED")
+    st.markdown("### ⚙️ แผงควบคุมระบบ")
+    st.success("🟢 ระบบได้รับอนุญาต (AUTHORIZED)")
     api_key = st.text_input("🔑 Gemini API Key:", type="password", placeholder="AIzaSy...")
-    st.markdown("[👉 รับ API Key จาก Google AI Studio](https://aistudio.google.com/)")
+    st.markdown("[👉 ขอรับ API Key จาก Google AI Studio](https://aistudio.google.com/)")
+    
     st.markdown("---")
+    st.markdown("##### 👤 ข้อมูลผู้จัดทำ")
     teacher_name = st.text_input("ชื่อ-สกุล ครูผู้สอน:", value="นายณัฐวุฒิ หล้าปงสาย")
     dept_name = st.text_input("แผนกวิชา:", value="การจัดการโลจิสติกส์และซัพพลายเชน")
-    if st.button("🔒 ล็อกระบบกลับ"):
+    
+    st.markdown("---")
+    if st.button("🔒 ออกจากระบบ / ล็อกหน้าจอ", use_container_width=True):
         st.session_state.authenticated = False
         st.rerun()
 
 st.markdown("""
 <div class="hero-banner">
-    <div class="hero-title">📋 ระบบจัดทำโครงการสอนอัจฉริยะ (สอศ.)</div>
+    <div class="hero-title">📋 EduPlan Pro : ระบบจัดทำโครงการสอนอัจฉริยะ</div>
     <div class="hero-desc">
-        สกัดตารางวิเคราะห์งานสู่โครงการสอนอัตโนมัติ รองรับ ปวส. (15 สัปดาห์ | ปี 1-2) และ ปวช. (18 สัปดาห์ | ปี 1-3)<br>
-        ล็อกคอลัมน์ สื่อ-วัดผล ตรงช่อง 100% พร้อมรันเลขหน้า/แผ่นที่ และซ้ำหัวตารางทุกหน้า
+        ออกแบบเพื่อครูอาชีวศึกษาโดยเฉพาะ สกัดข้อมูลตารางวิเคราะห์งานสู่โครงการสอน 6 คอลัมน์มาตรฐาน สอศ.<br>
+        เชื่อมโยงกิจกรรม Active Learning สื่อเฉพาะทาง และการประเมินผลอัตโนมัติ รองรับ ปวช. และ ปวส.
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -276,12 +363,20 @@ st.markdown("""
 col_file, col_info = st.columns([1, 1], gap="large")
 
 with col_file:
-    st.markdown('<div class="box-header">📁 1. เอกสารนำเข้า</div>', unsafe_allow_html=True)
-    template_file = st.file_uploader("แบบฟอร์มวิทยาลัย (templet.docx):", type=["docx"])
-    analysis_file = st.file_uploader("ไฟล์ตารางวิเคราะห์งาน (docx/pdf):", type=["docx", "pdf"])
+    st.markdown("""
+    <div class="section-card">
+        <div class="section-header">📁 ส่วนที่ 1 : เอกสารแม่แบบและตารางวิเคราะห์งาน</div>
+    """, unsafe_allow_html=True)
+    template_file = st.file_uploader("1. แนบไฟล์แม่แบบวิทยาลัย (templet.docx):", type=["docx"], help="แบบฟอร์มเปล่าของวิทยาลัยที่มีหัวตาราง 6 คอลัมน์")
+    analysis_file = st.file_uploader("2. แนบไฟล์ตารางวิเคราะห์งาน (docx/pdf):", type=["docx", "pdf"], help="ไฟล์วิเคราะห์หลักสูตรรายวิชาที่ต้องการนำมาจัดสัปดาห์")
+    st.markdown("</div>", unsafe_allow_html=True)
 
 with col_info:
-    st.markdown('<div class="box-header">🎯 2. ข้อมูลวิชาและระดับชั้น</div>', unsafe_allow_html=True)
+    st.markdown("""
+    <div class="section-card">
+        <div class="section-header">🎯 ส่วนที่ 2 : ข้อมูลรายวิชาและระดับการจัดการเรียนรู้</div>
+    """, unsafe_allow_html=True)
+    
     degree_select = st.selectbox("ระดับคุณวุฒิการศึกษา:", ["ประกาศนียบัตรวิชาชีพชั้นสูง (ปวส.)", "ประกาศนียบัตรวิชาชีพ (ปวช.)"])
     is_pvs = "ปวส." in degree_select
     
@@ -291,9 +386,9 @@ with col_info:
         year_input = st.selectbox("ระดับชั้นปี:", year_opts, index=0)
     with c_w:
         default_weeks = 15 if is_pvs else 18
-        weeks_input = st.number_input("สัปดาห์ต่อภาคเรียน:", min_value=1, max_value=22, value=default_weeks)
+        weeks_input = st.number_input("สัปดาห์/ภาคเรียน:", min_value=1, max_value=22, value=default_weeks)
     with c_h:
-        hours_input = st.number_input("ชั่วโมงต่อสัปดาห์:", min_value=1, max_value=10, value=4)
+        hours_input = st.number_input("ชั่วโมง/สัปดาห์:", min_value=1, max_value=10, value=4)
         
     c_code, c_sem = st.columns(2)
     with c_code:
@@ -301,27 +396,28 @@ with col_info:
     with c_sem:
         sem_input = st.text_input("ภาคเรียนที่:", value="1/2569")
         
-    course_name_input = st.text_input("ชื่อวิชา:", value="ซัพพลายเชนเบื้องต้น")
+    course_name_input = st.text_input("ชื่อวิชา:", value="การจัดการโลจิสติกส์และซัพพลายเชน")
+    st.markdown("</div>", unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
 # ----------------------------------------------------
 # 5. ประมวลผลและสร้างไฟล์ Word
 # ----------------------------------------------------
-if st.button("🚀 ประมวลผลและสร้างโครงการสอน (Generate Word)", type="primary", use_container_width=True):
+if st.button("🚀 ประมวลผลและสร้างโครงการสอน (Generate Word)", use_container_width=True):
     if not api_key:
-        st.warning("⚠️ กรุณาระบุ Gemini API Key ในแถบด้านซ้าย")
+        st.warning("⚠️ กรุณาระบุ Gemini API Key ในแถบด้านซ้ายก่อนเริ่มประมวลผล")
     elif not template_file or not analysis_file:
-        st.warning("⚠️ กรุณาแนบทั้ง 'แบบฟอร์มวิทยาลัย' และ 'ไฟล์ตารางวิเคราะห์งาน'")
+        st.warning("⚠️ กรุณาแนบทั้ง 'แบบฟอร์มวิทยาลัย' และ 'ไฟล์ตารางวิเคราะห์งาน' ให้ครบถ้วน")
     else:
-        with st.status("⚡ กำลังประมวลผลโครงการสอน...", expanded=True) as status:
+        with st.status("⚡ กำลังประมวลผลโครงการสอนมาตรฐาน สอศ. ...", expanded=True) as status:
             try:
-                st.write("📖 กำลังสกัดเนื้อหาจากตารางวิเคราะห์งาน...")
+                st.write("📖 กำลังอ่านโครงสร้างเนื้อหาจากตารางวิเคราะห์งาน...")
                 raw_bytes = analysis_file.getvalue()
                 mime = "application/pdf" if analysis_file.name.endswith(".pdf") else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                 content_data = get_file_content_for_ai(raw_bytes, analysis_file.name, mime)
 
-                st.write("🤖 สังเคราะห์กิจกรรม Active Learning, สื่อ และการประเมินผล...")
+                st.write("🤖 ระบบ AI กำลังสังเคราะห์กิจกรรม Active Learning สื่อ และการวัดผล...")
                 plans = extract_course_plan(
                     api_key=api_key,
                     content_data=content_data,
@@ -329,7 +425,7 @@ if st.button("🚀 ประมวลผลและสร้างโครง�
                     course_name=course_name_input
                 )
                 
-                st.write("📝 บรรจุข้อมูลลงในตารางและซ้ำหัวคอลัมน์ทุกหน้า...")
+                st.write("📝 กำลังบรรจุข้อมูลลงในตารางและซ้ำหัวคอลัมน์ทุกหน้า...")
                 doc = Document(template_file)
                 
                 CHECK, UNCHECK = "☑", "☐"
@@ -371,31 +467,23 @@ if st.button("🚀 ประมวลผลและสร้างโครง�
                     target_table = doc.tables[0]
                     header_row_index = 0
                 
-                # ซ้ำหัวตารางทุกหน้า
                 if header_row_index >= 0:
                     set_repeat_table_header(target_table.rows[header_row_index])
                 
-                # หยอดข้อมูล 6 คอลัมน์ตรงช่อง
                 for item in plans:
                     new_row = target_table.add_row()
                     row_cells = new_row.cells
                     num_cols = len(row_cells)
                     
                     if num_cols >= 6:
-                        # ช่อง 0: ส.ป.
                         row_cells[0].text = str(item.get("week", ""))
                         row_cells[0].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
                         
-                        # ช่องขวาสุด: วัดผล
                         row_cells[-1].text = str(item.get("assess", ""))
-                        # ช่องรองสุดท้าย: สื่อ
                         row_cells[-2].text = str(item.get("media", ""))
-                        # ช่องกิจกรรม
                         row_cells[-3].text = str(item.get("act", ""))
-                        # ช่อง Teaching Point
                         row_cells[-4].text = str(item.get("tp", ""))
                         
-                        # ช่องหัวข้อ (ตรงกลาง)
                         for c_idx in range(1, num_cols - 4):
                             row_cells[c_idx].text = str(item.get("topic", ""))
                     else:
@@ -413,7 +501,7 @@ if st.button("🚀 ประมวลผลและสร้างโครง�
                 st.success("🎉 ระบบสร้างเอกสารโครงการสอนเสร็จสมบูรณ์เรียบร้อยแล้ว")
                 
                 st.download_button(
-                    label=f"📥 ดาวน์โหลดโครงการสอน_{course_code_input}.docx",
+                    label=f"📥 ดาวน์โหลดไฟล์ Word : โครงการสอน_{course_code_input}.docx",
                     data=out_stream,
                     file_name=f"โครงการสอน_{course_code_input}_{sem_input.replace('/', '_')}.docx",
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -422,3 +510,12 @@ if st.button("🚀 ประมวลผลและสร้างโครง�
             except Exception as err:
                 status.update(label="❌ เกิดข้อผิดพลาด", state="error")
                 st.error(f"รายละเอียดข้อผิดพลาด: {str(err)}")
+
+# ส่วนแสดงข้อมูลลิขสิทธิ์ท้ายหน้าหลัก
+st.markdown("""
+<div class="copyright-box">
+    <span class="copyright-title">🏛️ EduPlan Pro | ระบบจัดทำโครงการสอนมาตรฐาน สอศ.</span>
+    พัฒนาและสงวนลิขสิทธิ์โดย <b>นายณัฐวุฒิ หล้าปงสาย</b> ครูผู้ช่วย แผนกวิชาการจัดการโลจิสติกส์และซัพพลายเชน วิทยาลัยเทคนิคจันทบุรี<br>
+    ออกแบบและพัฒนาระบบเพื่อการบริหารจัดการเรียนรู้อาชีวศึกษาเชิงรุก (Active Learning) | All Rights Reserved © 2026
+</div>
+""", unsafe_allow_html=True)
