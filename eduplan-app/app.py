@@ -11,7 +11,7 @@ from google import genai
 from google.genai import types
 
 # ----------------------------------------------------
-# 1. การตั้งค่าระบบความปลอดภัยและ UI
+# 1. การตั้งค่าระบบความปลอดภัยและส่วนแสดงผล (UI)
 # ----------------------------------------------------
 SYSTEM_PASSCODE = "0863449483"
 
@@ -75,7 +75,7 @@ if not st.session_state.authenticated:
 # 2. ฟังก์ชันจัดการ Word XML และระบบเลขหน้า
 # ----------------------------------------------------
 def add_page_number_field(run):
-    """แทรกฟิลด์ PAGE เพื่อให้ Word คำนวณเลขหน้าตามจริง"""
+    """แทรกฟิลด์ PAGE เพื่อให้ Word คำนวณเลขหน้าตามจริงของเอกสาร"""
     fldChar1 = OxmlElement('w:fldChar')
     fldChar1.set(qn('w:fldCharType'), 'begin')
     instrText = OxmlElement('w:instrText')
@@ -109,7 +109,7 @@ def set_cell_font(cell, font_name="TH SarabunPSK", font_size=Pt(14), bold=False)
             rPr.append(rFonts)
 
 def set_repeat_table_header(row):
-    """คำสั่ง XML ให้แถวหัวตารางซ้ำที่ด้านบนทุกหน้าอัตโนมัติเมื่อขึ้นหน้าใหม่"""
+    """คำสั่ง XML ให้แถวหัวตารางแสดงซ้ำที่ด้านบนทุกหน้าอัตโนมัติเมื่อขึ้นหน้าใหม่"""
     trPr = row._tr.get_or_add_trPr()
     tblHeader = OxmlElement('w:tblHeader')
     trPr.append(tblHeader)
@@ -145,7 +145,7 @@ def process_doc_placeholders(doc, replacements):
                 p.text = p.text.replace(k, str(v))
 
 # ----------------------------------------------------
-# 3. ฟังก์ชัน AI สกัดเนื้อหา (ระบบ Multi-Model สลับหลบ 503)
+# 3. ฟังก์ชัน AI สกัดเนื้อหา (Multi-Model Dynamic Fallback หนี 503)
 # ----------------------------------------------------
 def get_file_content_for_ai(file_bytes: bytes, file_name: str, mime_type: str):
     if file_name.endswith(".docx"):
@@ -196,7 +196,8 @@ def extract_course_plan(api_key: str, content_data, total_weeks: int, course_nam
     else:
         full_contents = [content_data, prompt]
 
-    candidate_models = ["gemini-2.5-flash", "gemini-3.6-flash"]
+    # กระจายโมเดลสำรองเพื่อเลี่ยงเซิร์ฟเวอร์เต็ม (503 UNAVAILABLE)
+    candidate_models = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-3.6-flash"]
     last_error = None
 
     for model_name in candidate_models:
