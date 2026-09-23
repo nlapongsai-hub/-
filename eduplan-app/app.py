@@ -75,7 +75,7 @@ if not st.session_state.authenticated:
 # 2. ฟังก์ชันจัดการ Word XML และระบบตาราง
 # ----------------------------------------------------
 def add_page_number_field(run):
-    """แทรกฟิลด์ PAGE เพื่อให้ Word คำนวณเลขหน้าตามจริงของเอกสาร"""
+    """แทรกฟิลด์ PAGE เพื่อให้ Word คำนวณเลขหน้าตามจริง"""
     fldChar1 = OxmlElement('w:fldChar')
     fldChar1.set(qn('w:fldCharType'), 'begin')
     instrText = OxmlElement('w:instrText')
@@ -145,7 +145,7 @@ def process_doc_placeholders(doc, replacements):
                 p.text = p.text.replace(k, str(v))
 
 # ----------------------------------------------------
-# 3. ฟังก์ชัน AI สกัดเนื้อหา (เสถียร ไม่ติด 503)
+# 3. ฟังก์ชัน AI สกัดเนื้อหา (ใช้ gemini-3.6-flash มาตรฐานปี 2026)
 # ----------------------------------------------------
 def get_file_content_for_ai(file_bytes: bytes, file_name: str, mime_type: str):
     if file_name.endswith(".docx"):
@@ -191,34 +191,27 @@ def extract_course_plan(api_key: str, content_data, total_weeks: int, course_nam
   }}
 ]
 """
-    # ใช้ gemini-2.5-flash และ gemini-2.5-flash-lite เพื่อแก้ปัญหา 503 เซิร์ฟเวอร์หนาแน่น
-    candidate_models = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"]
-    last_error = None
-
+    # กำหนดใช้ gemini-3.6-flash ตามที่ API แนะนำ พร้อมระบบหน่วงเวลารอคิวว่าง
+    max_retries = 3
     if isinstance(content_data, str):
         full_contents = f"ข้อมูลตารางวิเคราะห์งาน:\n{content_data[:15000]}\n\n{prompt}"
     else:
         full_contents = [content_data, prompt]
 
-    for model_name in candidate_models:
-        for attempt in range(3):
-            try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=full_contents,
-                    config=types.GenerateContentConfig(response_mime_type="application/json")
-                )
-                return json.loads(response.text)
-            except Exception as e:
-                last_error = e
-                err_str = str(e)
-                if ("503" in err_str or "UNAVAILABLE" in err_str) and attempt < 2:
-                    time.sleep(3 * (attempt + 1))
-                    continue
-                else:
-                    break
-
-    raise last_error
+    for attempt in range(max_retries):
+        try:
+            response = client.models.generate_content(
+                model="gemini-3.6-flash",
+                contents=full_contents,
+                config=types.GenerateContentConfig(response_mime_type="application/json")
+            )
+            return json.loads(response.text)
+        except Exception as e:
+            err_str = str(e)
+            if ("503" in err_str or "UNAVAILABLE" in err_str) and attempt < max_retries - 1:
+                time.sleep(6 * (attempt + 1))  # รอ 6s แล้วลองใหม่รอบที่สอง, รอ 12s ในรอบที่สาม
+                continue
+            raise e
 
 # ----------------------------------------------------
 # 4. ส่วนรับข้อมูลหน้าเว็บ
