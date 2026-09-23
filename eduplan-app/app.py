@@ -12,7 +12,7 @@ from google import genai
 from google.genai import types
 
 # ----------------------------------------------------
-# 1. การตั้งค่าระบบความปลอดภัยและส่วนแสดงผล (UI Styling)
+# 1. การตั้งค่าระบบความปลอดภัยและ UI
 # ----------------------------------------------------
 SYSTEM_PASSCODE = "0863449483"
 
@@ -158,7 +158,6 @@ if not st.session_state.authenticated:
 # 2. ฟังก์ชันจัดการ Word XML, เลขหน้า Dynamic และซ้ำหัวตาราง
 # ----------------------------------------------------
 def add_page_number_field(run, font_name="TH SarabunPSK", font_size=Pt(14)):
-    """แทรกโค้ดฟิลด์ Word PAGE อัตโนมัติ"""
     fldChar1 = OxmlElement('w:fldChar')
     fldChar1.set(qn('w:fldCharType'), 'begin')
     instrText = OxmlElement('w:instrText')
@@ -183,38 +182,38 @@ def add_page_number_field(run, font_name="TH SarabunPSK", font_size=Pt(14)):
     rFonts.set(qn('w:cs'), font_name)
     run._r.get_or_add_rPr().append(rFonts)
 
+def format_paragraph_text(p, font_name="TH SarabunPSK", font_size=Pt(14), bold=False):
+    p.paragraph_format.space_before = Pt(2)
+    p.paragraph_format.space_after = Pt(2)
+    p.paragraph_format.line_spacing = 1.0
+    for run in p.runs:
+        run.font.name = font_name
+        run.font.size = font_size
+        run.font.bold = bold
+        rPr = run._r.get_or_add_rPr()
+        rFonts = OxmlElement('w:rFonts')
+        rFonts.set(qn('w:ascii'), font_name)
+        rFonts.set(qn('w:hAnsi'), font_name)
+        rFonts.set(qn('w:cs'), font_name)
+        rPr.append(rFonts)
+
 def set_cell_font(cell, font_name="TH SarabunPSK", font_size=Pt(14), bold=False):
     for p in cell.paragraphs:
-        p.paragraph_format.space_before = Pt(2)
-        p.paragraph_format.space_after = Pt(2)
-        p.paragraph_format.line_spacing = 1.0
-        for run in p.runs:
-            run.font.name = font_name
-            run.font.size = font_size
-            run.font.bold = bold
-            rPr = run._r.get_or_add_rPr()
-            rFonts = OxmlElement('w:rFonts')
-            rFonts.set(qn('w:ascii'), font_name)
-            rFonts.set(qn('w:hAnsi'), font_name)
-            rFonts.set(qn('w:cs'), font_name)
-            rPr.append(rFonts)
+        format_paragraph_text(p, font_name, font_size, bold)
 
 def set_repeat_table_header(row):
-    """กำหนด XML tblHeader ให้แถวนี้ทำซ้ำทุกหน้าที่ขึ้นใหม่"""
     trPr = row._tr.get_or_add_trPr()
     if trPr.find(qn('w:tblHeader')) is None:
         tblHeader = OxmlElement('w:tblHeader')
         trPr.append(tblHeader)
 
 def set_row_cant_split(row):
-    """ป้องกันข้อความในแถวแตกครึ่งหน้า"""
     trPr = row._tr.get_or_add_trPr()
     if trPr.find(qn('w:cantSplit')) is None:
         cantSplit = OxmlElement('w:cantSplit')
         trPr.append(cantSplit)
 
 def enable_update_fields_on_open(doc):
-    """ตั้งค่าให้ Word อัปเดตเลขหน้าอัตโนมัติทันทีที่เปิดไฟล์"""
     try:
         settings = doc.settings._element
         if settings.find(qn('w:updateFields')) is None:
@@ -225,27 +224,23 @@ def enable_update_fields_on_open(doc):
         pass
 
 def setup_header_page_and_sheet_numbers(doc):
-    """เปลี่ยน แผ่นที่ และ หน้าที่ ให้รันเลขหน้าตามจริงของเอกสารทุกหน้า"""
     for table in doc.tables:
         for row in table.rows:
             for cell in row.cells:
-                # 1. จัดการ แผ่นที่ : 1 -> ให้รันเป็น แผ่นที่ : {PAGE}
                 if "แผ่นที่" in cell.text:
                     for p in cell.paragraphs:
                         if "แผ่นที่" in p.text:
                             p.text = "แผ่นที่ : "
                             p.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                            run_lbl = p.runs[0]
-                            run_lbl.font.name = "TH SarabunPSK"
-                            run_lbl.font.size = Pt(14)
+                            format_paragraph_text(p, font_name="TH SarabunPSK", font_size=Pt(14))
                             add_page_number_field(p.add_run())
 
-                # 2. จัดการ หน้าที่ -> ให้บรรทัดล่างรันเป็น {PAGE}
                 if "หน้าที่" in cell.text:
                     if len(cell.paragraphs) >= 2:
-                        cell.paragraphs[0].text = "หน้าที่"
-                        cell.paragraphs[0].paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                        set_cell_font(cell.paragraphs[0], font_name="TH SarabunPSK", font_size=Pt(14))
+                        p_top = cell.paragraphs[0]
+                        p_top.text = "หน้าที่"
+                        p_top.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                        format_paragraph_text(p_top, font_name="TH SarabunPSK", font_size=Pt(14))
                         
                         p_num = cell.paragraphs[1]
                         p_num.text = ""
@@ -255,7 +250,7 @@ def setup_header_page_and_sheet_numbers(doc):
                         p = cell.paragraphs[0]
                         p.text = "หน้าที่ "
                         p.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                        set_cell_font(p, font_name="TH SarabunPSK", font_size=Pt(14))
+                        format_paragraph_text(p, font_name="TH SarabunPSK", font_size=Pt(14))
                         add_page_number_field(p.add_run())
 
 def process_doc_placeholders(doc, replacements):
@@ -274,7 +269,7 @@ def process_doc_placeholders(doc, replacements):
                 p.text = p.text.replace(k, str(v))
 
 # ----------------------------------------------------
-# 3. ฟังก์ชัน AI สกัดเนื้อหา (Bulletproof Mode)
+# 3. ฟังก์ชัน AI สกัดเนื้อหา
 # ----------------------------------------------------
 def get_file_content_for_ai(file_bytes: bytes, file_name: str, mime_type: str):
     if file_name.endswith(".docx"):
@@ -372,7 +367,7 @@ def extract_course_plan(api_key: str, content_data, total_weeks: int, course_nam
                 res = json.loads(text)
                 if isinstance(res, list) and len(res) > 0:
                     return res
-            except Exception as e:
+            except Exception:
                 time.sleep(2)
                 continue
 
@@ -498,7 +493,6 @@ if st.button("🚀 ประมวลผลและสร้างโครง�
                 }
                 process_doc_placeholders(doc, replacements)
                 
-                # เปลี่ยนให้ แผ่นที่ และ หน้าที่ รันเลขอัตโนมัติตามจริง
                 setup_header_page_and_sheet_numbers(doc)
                 
                 target_table = None
@@ -516,7 +510,6 @@ if st.button("🚀 ประมวลผลและสร้างโครง�
                     target_table = doc.tables[0]
                     header_row_index = 0
                 
-                # สั่งซ้ำหัวตารางอย่างต่อเนื่องตั้งแต่แถว 0 ถึงแถวหัวคอลัมน์ เพื่อให้ซ้ำครบทุกหน้า
                 for r_idx in range(header_row_index + 1):
                     set_repeat_table_header(target_table.rows[r_idx])
                     set_row_cant_split(target_table.rows[r_idx])
