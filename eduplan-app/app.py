@@ -11,7 +11,7 @@ from google import genai
 from google.genai import types
 
 # ----------------------------------------------------
-# 1. ตั้งค่าความปลอดภัยและ UI
+# 1. การตั้งค่าระบบความปลอดภัยและ UI
 # ----------------------------------------------------
 SYSTEM_PASSCODE = "0863449483"
 
@@ -72,10 +72,10 @@ if not st.session_state.authenticated:
     st.stop()
 
 # ----------------------------------------------------
-# 2. ฟังก์ชันจัดการ Word XML และระบบเลขหน้า
+# 2. ฟังก์ชันจัดการ Word XML และระบบตาราง
 # ----------------------------------------------------
 def add_page_number_field(run):
-    """แทรกโค้ดฟิลด์ Word PAGE เพื่อรันเลขหน้าตามจริงของเอกสาร"""
+    """แทรกฟิลด์ PAGE เพื่อให้ Word คำนวณเลขหน้าตามจริงของเอกสาร"""
     fldChar1 = OxmlElement('w:fldChar')
     fldChar1.set(qn('w:fldCharType'), 'begin')
     instrText = OxmlElement('w:instrText')
@@ -109,7 +109,7 @@ def set_cell_font(cell, font_name="TH SarabunPSK", font_size=Pt(14), bold=False)
             rPr.append(rFonts)
 
 def set_repeat_table_header(row):
-    """คำสั่ง XML ให้แถวหัวตารางแสดงซ้ำที่ด้านบนทุกหน้าอัตโนมัติเมื่อเอกสารขึ้นหน้าใหม่"""
+    """คำสั่ง XML ให้แถวหัวตารางซ้ำที่ด้านบนทุกหน้าอัตโนมัติเมื่อขึ้นหน้าใหม่"""
     trPr = row._tr.get_or_add_trPr()
     tblHeader = OxmlElement('w:tblHeader')
     trPr.append(tblHeader)
@@ -119,15 +119,14 @@ def process_doc_placeholders(doc, replacements):
     for table in doc.tables:
         for row in table.rows:
             for cell in row.cells:
-                if "{{ page_no }}" in cell.text:
+                if "{{ page_no }}" in cell.text or "{{page_no}}" in cell.text:
                     for p in cell.paragraphs:
-                        if "{{ page_no }}" in p.text:
-                            p.text = p.text.replace("{{ page_no }}", "")
+                        if "{{ page_no }}" in p.text or "{{page_no}}" in p.text:
+                            p.text = p.text.replace("{{ page_no }}", "").replace("{{page_no}}", "")
                             run = p.add_run()
                             add_page_number_field(run)
                             run.font.name = "TH SarabunPSK"
                             run.font.size = Pt(14)
-                
                 for k, v in replacements.items():
                     if k in cell.text:
                         for p in cell.paragraphs:
@@ -135,8 +134,8 @@ def process_doc_placeholders(doc, replacements):
                                 p.text = p.text.replace(k, str(v))
 
     for p in doc.paragraphs:
-        if "{{ page_no }}" in p.text:
-            p.text = p.text.replace("{{ page_no }}", "")
+        if "{{ page_no }}" in p.text or "{{page_no}}" in p.text:
+            p.text = p.text.replace("{{ page_no }}", "").replace("{{page_no}}", "")
             run = p.add_run()
             add_page_number_field(run)
             run.font.name = "TH SarabunPSK"
@@ -146,10 +145,9 @@ def process_doc_placeholders(doc, replacements):
                 p.text = p.text.replace(k, str(v))
 
 # ----------------------------------------------------
-# 3. ฟังก์ชัน AI สกัดเนื้อหา (ใช้ python-docx อ่านข้อความ ไม่พึ่ง pypdf)
+# 3. ฟังก์ชัน AI สกัดเนื้อหา (เสถียร ไม่ติด 503)
 # ----------------------------------------------------
 def get_file_content_for_ai(file_bytes: bytes, file_name: str, mime_type: str):
-    """แปลงเนื้อหาเอกสาร docx เป็น Text ส่วน PDF ส่งผ่าน types.Part โดยตรง"""
     if file_name.endswith(".docx"):
         try:
             doc = Document(io.BytesIO(file_bytes))
@@ -164,45 +162,46 @@ def get_file_content_for_ai(file_bytes: bytes, file_name: str, mime_type: str):
                         text_lines.append(" | ".join(row_data))
             return "\n".join(text_lines)
         except Exception:
-            return ""
+            pass
     return types.Part.from_bytes(data=file_bytes, mime_type=mime_type)
 
 def extract_course_plan(api_key: str, content_data, total_weeks: int, course_name: str):
     client = genai.Client(api_key=api_key)
     prompt = f"""
 คุณคือผู้เชี่ยวชาญการจัดทำหลักสูตรและโครงการสอนระดับอาชีวศึกษา (มาตรฐาน สอศ.)
-จงอ่านข้อมูลจากตารางวิเคราะห์งาน/วิเคราะห์หลักสูตรของวิชา '{course_name}' ต่อไปนี้ แล้วสังเคราะห์จัดทำเป็น 'ตารางโครงการสอนรายสัปดาห์' ให้ครบถ้วนจำนวน {total_weeks} สัปดาห์ (สัปดาห์ที่ 1 ถึง {total_weeks})
+จงอ่านข้อมูลจากตารางวิเคราะห์งาน/หลักสูตรวิชา '{course_name}' แล้วสังเคราะห์จัดทำเป็น 'ตารางโครงการสอนรายสัปดาห์' ให้ครบถ้วนจำนวน {total_weeks} สัปดาห์ (สัปดาห์ที่ 1 ถึง {total_weeks})
 
-*** ข้อกำหนดโครงสร้าง JSON Output ในแต่ละสัปดาห์: ***
-1. week: ตัวเลขสัปดาห์ (เช่น 1)
-2. topic_title: ข้อความ 2 บรรทัด (บรรทัดแรก: หน่วยที่... ชื่อหน่วย / บรรทัดสอง: เรื่อง...)
-3. teaching_points: จุดประสงค์เชิงพฤติกรรม 2-3 ข้อ (สังเคราะห์จากสมรรถนะย่อย ความรู้ และทักษะ)
-4. activities: ขั้นตอนการจัดการเรียนรู้เชิงรุก (Active Learning 4 ขั้นตอน: 1.ขั้นนำ 2.ขั้นสอน/ศึกษา 3.ขั้นปฏิบัติ 4.ขั้นสรุปและประเมินผล)
-5. media: สื่อการเรียนรู้ที่ **สอดคล้องกับสิ่งที่นักเรียนทำในขั้นกิจกรรมปฏิบัติจริง** (เช่น แบบฟอร์มใบสั่งซื้อ PO, ซอฟต์แวร์ ERP จำลอง, แผนผัง Layout คลังสินค้า พร้อมสไลด์และใบงาน)
-6. assessment: การวัดและประเมินผลที่ **สอดคล้องกับกิจกรรมจริง** (เช่น แบบประเมินทักษะการปฏิบัติงาน Rubric, แบบทดสอบย่อย, แบบประเมินผลงานกลุ่ม)
+*** ข้อกำหนดข้อมูลในแต่ละสัปดาห์ (เน้นความเชื่อมโยง 100%): ***
+1. week: ตัวเลขสัปดาห์ (1 ถึง {total_weeks})
+2. topic: ชื่อหน่วยและเรื่อง (บรรทัดแรก: หน่วยที่... ชื่อหน่วย / บรรทัดสอง: เรื่อง...)
+3. tp: จุดประสงค์เชิงพฤติกรรม 2-3 ข้อ (สังเคราะห์จากสมรรถนะย่อย ความรู้ และทักษะ)
+4. act: ขั้นตอน Active Learning 4 ขั้นตอน (1.ขั้นนำเข้าสู่บทเรียน 2.ขั้นให้ความรู้/ศึกษาค้นคว้า 3.ขั้นฝึกปฏิบัติการ 4.ขั้นสรุปและประเมินผล)
+5. media: สื่อการเรียนรู้ที่ **สอดคล้องกับสิ่งที่นักเรียนใช้ในกิจกรรมปฏิบัติจริง** (เช่น แบบฟอร์มใบสั่งซื้อ PO, ซอฟต์แวร์ ERP จำลอง, แผนผัง Layout คลังสินค้า พร้อมสไลด์และใบงาน)
+6. assess: การวัดผลที่ **สอดคล้องกับกิจกรรมจริง** (เช่น แบบประเมินทักษะ Rubric, แบบทดสอบย่อย, ตรวจผลงานใบงาน)
 
-ตอบกลับเป็น Pure JSON Array เท่านั้น ห้ามใส่ markdown block:
+ตอบกลับเป็น Pure JSON Array เท่านั้น ห้ามใส่ markdown code block ครอบ:
 [
   {{
     "week": 1,
-    "topic_title": "หน่วยที่ 1 ความรู้เบื้องต้นเกี่ยวกับซัพพลายเชน\\nเรื่อง ความหมายและขอบเขต",
-    "teaching_points": "- อธิบายความหมายและขอบเขตของซัพพลายเชนได้\\n- เปรียบเทียบความแตกต่างระหว่างโลจิสติกส์และซัพพลายเชนได้",
-    "activities": "1. ขั้นนำเข้าสู่บทเรียน: ครูเปิดคลิปวิดีโอและตั้งคำถาม...\\n2. ขั้นให้ความรู้: บรรยายประกอบสไลด์...\\n3. ขั้นฝึกปฏิบัติ: แบ่งกลุ่มวิเคราะห์โครงสร้างธุรกิจ...\\n4. ขั้นสรุปและประเมินผล: สรุปประเด็นสำคัญร่วมกัน",
-    "media": "- สื่อสไลด์มัลติมีเดีย หน่วยที่ 1\\n- คลิปวิดีโอวงจรชีวิตผลิตภัณฑ์\\n- ตารางวิเคราะห์เปรียบเทียบ\\n- ใบงานที่ 1.1 เรื่อง โครงสร้างซัพพลายเชน",
-    "assessment": "- แบบประเมินผลการทำใบงานที่ 1.1\\n- แบบทดสอบย่อยท้ายคาบ\\n- แบบประเมินการนำเสนอผลงานกลุ่ม\\n- แบบสังเกตพฤติกรรมการทำงาน"
+    "topic": "หน่วยที่ 1 ความรู้เบื้องต้นเกี่ยวกับซัพพลายเชน\\nเรื่อง ความหมายและขอบเขต",
+    "tp": "- อธิบายความหมายและขอบเขตได้\\n- เปรียบเทียบความแตกต่างได้",
+    "act": "1. ขั้นนำ: เปิดคลิปวิดีโอ...\\n2. ขั้นสอน: บรรยายสไลด์...\\n3. ขั้นปฏิบัติ: ทำใบงานวิเคราะห์...\\n4. ขั้นสรุป: สรุปร่วมกัน",
+    "media": "- สไลด์มัลติมีเดีย หน่วยที่ 1\\n- คลิปวิดีโอวงจรชีวิตผลิตภัณฑ์\\n- ใบงานที่ 1.1 เรื่อง โครงสร้างซัพพลายเชน",
+    "assess": "- แบบประเมินใบงานที่ 1.1\\n- แบบทดสอบย่อยท้ายคาบ\\n- แบบสังเกตพฤติกรรมการทำงาน"
   }}
 ]
 """
-    candidate_models = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3.6-flash"]
+    # ใช้ gemini-2.5-flash และ gemini-2.5-flash-lite เพื่อแก้ปัญหา 503 เซิร์ฟเวอร์หนาแน่น
+    candidate_models = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"]
     last_error = None
 
     if isinstance(content_data, str):
-        full_contents = f"เนื้อหาเอกสาร:\n{content_data[:15000]}\n\n{prompt}"
+        full_contents = f"ข้อมูลตารางวิเคราะห์งาน:\n{content_data[:15000]}\n\n{prompt}"
     else:
         full_contents = [content_data, prompt]
 
     for model_name in candidate_models:
-        for attempt in range(2):
+        for attempt in range(3):
             try:
                 response = client.models.generate_content(
                     model=model_name,
@@ -213,8 +212,8 @@ def extract_course_plan(api_key: str, content_data, total_weeks: int, course_nam
             except Exception as e:
                 last_error = e
                 err_str = str(e)
-                if ("503" in err_str or "UNAVAILABLE" in err_str) and attempt < 1:
-                    time.sleep(3)
+                if ("503" in err_str or "UNAVAILABLE" in err_str) and attempt < 2:
+                    time.sleep(3 * (attempt + 1))
                     continue
                 else:
                     break
@@ -241,7 +240,7 @@ st.markdown("""
     <div class="hero-title">📋 ระบบจัดทำโครงการสอนอัจฉริยะ (สอศ.)</div>
     <div class="hero-desc">
         สกัดตารางวิเคราะห์งานสู่โครงการสอนอัตโนมัติ รองรับ ปวส. (15 สัปดาห์ | ปี 1-2) และ ปวช. (18 สัปดาห์ | ปี 1-3)<br>
-        แยกช่อง สื่อ-วัดผล ตรงคอลัมน์ 100% พร้อมรันเลขหน้า/แผ่นที่ และซ้ำหัวตารางทุกหน้า
+        ระบบออกแบบกิจกรรมเชิงรุก สื่อ และการวัดผลที่เชื่อมโยงตรงตามบริบท พร้อมซ้ำหัวตารางทุกหน้า
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -274,7 +273,7 @@ with col_info:
     with c_sem:
         sem_input = st.text_input("ภาคเรียนที่:", value="1/2569")
         
-    course_name_input = st.text_input("ชื่อวิชา:", value="ซัพพลายเชนเบื้องต้น")
+    course_name_input = st.text_input("ชื่อวิชา:", value="การจัดการโลจิสติกส์และซัพพลายเชน")
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -289,12 +288,12 @@ if st.button("🚀 ประมวลผลและสร้างโครง�
     else:
         with st.status("⚡ กำลังสร้างโครงการสอนมาตรฐาน สอศ. ...", expanded=True) as status:
             try:
-                st.write("📖 กำลังอ่านและเตรียมข้อมูลจากตารางวิเคราะห์งาน...")
+                st.write("📖 กำลังเตรียมข้อมูลจากตารางวิเคราะห์งาน...")
                 raw_bytes = analysis_file.getvalue()
                 mime = "application/pdf" if analysis_file.name.endswith(".pdf") else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                 content_data = get_file_content_for_ai(raw_bytes, analysis_file.name, mime)
 
-                st.write("🤖 กำลังวิเคราะห์เนื้อหา ออกแบบสื่อ และการวัดผลเฉพาะบริบท...")
+                st.write("🤖 กำลังวิเคราะห์เนื้อหา เชื่อมโยงกิจกรรม สื่อ และการวัดผลเฉพาะบริบท...")
                 plans = extract_course_plan(
                     api_key=api_key,
                     content_data=content_data,
@@ -302,7 +301,7 @@ if st.button("🚀 ประมวลผลและสร้างโครง�
                     course_name=course_name_input
                 )
                 
-                st.write("📝 กำลังบรรจุข้อมูลลงคอลัมน์ และตั้งค่าระบบเลขหน้า...")
+                st.write("📝 กำลังบรรจุข้อมูลลงแบบฟอร์ม Word และจัดระบบเลขหน้า...")
                 doc = Document(template_file)
                 
                 CHECK, UNCHECK = "☑", "☐"
@@ -322,19 +321,19 @@ if st.button("🚀 ประมวลผลและสร้างโครง�
                     "{{ semester }}": sem_input,
                     "{{ year_display }}": y_disp,
                     "{{ sheet_no }}": "1",
+                    "{{sheet_no}}": "1",
                     "{{ cb_y1 }}": CHECK if year_input == 1 else UNCHECK,
                     "{{ cb_y2 }}": CHECK if year_input == 2 else UNCHECK,
                     "{{ cb_y3 }}": CHECK if year_input == 3 else UNCHECK
                 }
                 process_doc_placeholders(doc, replacements)
                 
-                # ค้นหาตารางหลัก
                 target_table = None
                 header_row_index = -1
                 for tbl in doc.tables:
                     for idx, row in enumerate(tbl.rows):
                         row_text = " ".join([c.text for c in row.cells])
-                        if "ส.ป." in row_text or "Teaching Point" in row_text:
+                        if "ส.ป." in row_text or "Teaching Point" in row_text or "กิจกรรม" in row_text:
                             target_table = tbl
                             header_row_index = idx
                             break
@@ -344,32 +343,35 @@ if st.button("🚀 ประมวลผลและสร้างโครง�
                     target_table = doc.tables[0]
                     header_row_index = 0
                 
-                # สั่งซ้ำหัวตารางทุกหน้า
+                # ซ้ำแถวหัวตารางทุกหน้าเมื่อขึ้นหน้าใหม่
                 if header_row_index >= 0:
                     set_repeat_table_header(target_table.rows[header_row_index])
                 
-                # หยอดข้อมูลตาราง 6 คอลัมน์แบบตรงช่อง 100%
+                # หยอดข้อมูล 6 คอลัมน์แบบตรงช่อง 100%
                 for item in plans:
-                    row_cells = target_table.add_row().cells
+                    new_row = target_table.add_row()
+                    row_cells = new_row.cells
+                    num_cols = len(row_cells)
                     
-                    # คอลัมน์ 0: ส.ป.
-                    row_cells[0].text = str(item.get("week", ""))
-                    row_cells[0].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
-                    
-                    # คอลัมน์ 1: หัวข้อ
-                    row_cells[1].text = str(item.get("topic_title", ""))
-                    
-                    # คอลัมน์ 2: Teaching Point
-                    row_cells[2].text = str(item.get("teaching_points", ""))
-                    
-                    # คอลัมน์ 3: กิจกรรม
-                    row_cells[3].text = str(item.get("activities", ""))
-                    
-                    # คอลัมน์ 4: สื่อ
-                    row_cells[4].text = str(item.get("media", ""))
-                    
-                    # คอลัมน์ 5: วัดผล
-                    row_cells[5].text = str(item.get("assessment", ""))
+                    if num_cols >= 6:
+                        # ช่อง 0: ส.ป.
+                        row_cells[0].text = str(item.get("week", ""))
+                        row_cells[0].paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
+                        
+                        # ช่องขวาสุด: วัดผล
+                        row_cells[-1].text = str(item.get("assess", ""))
+                        # ช่องรองสุดท้าย: สื่อ
+                        row_cells[-2].text = str(item.get("media", ""))
+                        # ช่องกิจกรรม
+                        row_cells[-3].text = str(item.get("act", ""))
+                        # ช่อง Teaching Point
+                        row_cells[-4].text = str(item.get("tp", ""))
+                        
+                        # ช่องหัวข้อ (เติมเต็มช่องตรงกลางระหว่าง ส.ป. และ Teaching Point)
+                        for c_idx in range(1, num_cols - 4):
+                            row_cells[c_idx].text = str(item.get("topic", ""))
+                    else:
+                        row_cells[0].text = str(item.get("week", ""))
                     
                     for cell in row_cells:
                         set_cell_font(cell, font_name="TH SarabunPSK", font_size=Pt(14))
@@ -380,7 +382,7 @@ if st.button("🚀 ประมวลผลและสร้างโครง�
                 
                 status.update(label="✅ ดำเนินการสร้างโครงการสอนสำเร็จ!", state="complete", expanded=False)
                 st.balloons()
-                st.success("🎉 ระบบจัดโครงสร้างโครงการสอนเสร็จสมบูรณ์เรียบร้อยแล้ว")
+                st.success("🎉 ระบบจัดทำโครงการสอนเสร็จสมบูรณ์เรียบร้อยแล้ว")
                 
                 st.download_button(
                     label=f"📥 ดาวน์โหลดโครงการสอน_{course_code_input}.docx",
